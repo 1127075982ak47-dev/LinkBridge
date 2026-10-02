@@ -6,6 +6,8 @@ Keyboard, file and clipboard channels authenticate the configured peer using a p
 
 Pairing files and local signing identities are private per-installation data. This repository contains neither. Clipboard sharing sends newly copied plain text or supported images to the paired computer while enabled; it skips startup history and does not persist clipboard history.
 
+Public installation bundles are rebuilt from the public source without machine configuration. The documented audit covers Git history, source downloads and the public Windows/macOS release archives, including native/binary contents. See [publication audit](docs/security/PUBLICATION-AUDIT.md) and verify release checksums before installation.
+
 If you find a vulnerability, use the repository's **Security → Report a vulnerability** entry when available. Do not include credentials or exploitable private-system details in a public issue. For non-sensitive reproducible defects, the regular issue template is appropriate.
 
 Only the current developer preview is maintained. No response-time or security certification is promised.

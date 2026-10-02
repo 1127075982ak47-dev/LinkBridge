@@ -1,5 +1,7 @@
 # Build and pair LinkBridge 0.0.1
 
+For the self-contained public downloads, see [INSTALLING](INSTALLING.md). The source-development commands below remain useful for contributors; their framework-dependent builds differ from the release bundles, which include their own runtime.
+
 LinkBridge currently targets a Windows computer on the left and an Apple Silicon Mac on the right. Keyboard and mouse control, shared text/image clipboard, and Windows-to-Finder file drag are the primary development path. The public UI does not yet include a complete first-run pairing wizard: a new pair needs its own settings and initial macOS permissions.
 
 The existing developer installation is not a transferable pairing profile. Generate new credentials for your own two computers. Do not copy another installation's settings, signing key, keychain, or permission database.

@@ -8,6 +8,8 @@
 
 ### One desk. Two systems.
 
+[Windows x64 and Apple Silicon downloads](https://github.com/1127075982ak47-dev/LinkBridge/releases/tag/v0.0.1) · [Installation](docs/INSTALLING.md) · [Publication audit](docs/security/PUBLICATION-AUDIT.md)
+
 A circular workspace for two computers. Slide your Windows pointer into a Mac, drop a file into Finder, and bring text or images back to the app you are working in.
 
 ![LinkBridge circular workspace](docs/assets/overview.png)

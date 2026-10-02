@@ -40,6 +40,8 @@
 
 ## 从源码运行
 
+也可以先下载 [Windows x64 / Apple Silicon Mac 安装包](https://github.com/1127075982ak47-dev/LinkBridge/releases/tag/v0.0.1)。两个包自带 .NET 运行时；首次配对与平台权限请看 [安装说明](docs/INSTALLING.md)。公开发行安全检查见 [审计报告](docs/security/PUBLICATION-AUDIT.md)。
+
 准备 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)。媒体功能还需要 [FFmpeg](https://ffmpeg.org/download.html)；Mac 应用打包需要 Xcode Command Line Tools。版本与平台安装细节见 [构建说明](docs/BUILDING.md)。
 
 ```sh
