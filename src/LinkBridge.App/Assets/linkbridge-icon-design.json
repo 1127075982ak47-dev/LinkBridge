@@ -1,0 +1,16 @@
+{
+  "layers": [
+    { "radius": 122, "from": "#7396BE44", "to": "#7396BE44", "stroke": "#B0DAFF55", "strokeWidth": 1 },
+    { "radius": 118, "from": "#FFFFFF", "to": "#B6CCEF", "stroke": "#EFFAFF", "strokeWidth": 2 },
+    { "radius": 109, "from": "#419DFF", "to": "#173BB7", "stroke": "#79BDFF", "strokeWidth": 1.5 }
+  ],
+  "screens": [{ "x": 50, "y": 68, "w": 72, "h": 56 }, { "x": 134, "y": 124, "w": 72, "h": 56 }],
+  "screenStrokeWidth": 7.5,
+  "start": [122, 96],
+  "curves": [
+    [157, 96, 99, 152, 134, 152]
+  ],
+  "glyph": "#BAF4FF",
+  "glyphWidth": 9,
+  "reflection": ["#FFFFFF80", 104, 214, 310, 2]
+}

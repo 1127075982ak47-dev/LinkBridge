@@ -1,0 +1,242 @@
+﻿<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:LinkBridge.App.ViewModels" xmlns:discovery="using:LinkBridge.Core.Discovery" xmlns:controls="using:LinkBridge.App.Controls" xmlns:art="using:LinkBridge.App.Assets"
+    x:Class="LinkBridge.App.Views.MainWindow" x:DataType="vm:MainViewModel" Icon="/Assets/linkbridge.ico"
+    Width="640" Height="640" MinWidth="480" MinHeight="480" WindowStartupLocation="CenterScreen"
+    WindowDecorations="None" TransparencyLevelHint="Transparent" Background="Transparent" CanResize="True"
+    FontFamily="PingFang SC, Microsoft YaHei UI, Segoe UI, Inter" Title="联桥 LinkBridge">
+    <Window.Resources>
+        <Color x:Key="SystemAccentColor">#397EFF</Color>
+    </Window.Resources>
+    <Window.Styles>
+        <Style Selector="TextBlock"><Setter Property="Foreground" Value="#213663" /><Setter Property="FontSize" Value="18" /></Style>
+        <Style Selector="TextBlock.grp"><Setter Property="FontSize" Value="20" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+        <Style Selector="TextBlock.key"><Setter Property="FontSize" Value="17" /></Style>
+        <Style Selector="TextBlock.val"><Setter Property="FontSize" Value="17" /><Setter Property="Foreground" Value="#536685" /></Style>
+        <Style Selector="TextBlock.hint"><Setter Property="FontSize" Value="17" /><Setter Property="Foreground" Value="#536685" /></Style>
+        <Style Selector="Rectangle.sep"><Setter Property="Height" Value="1" /><Setter Property="Fill" Value="#DEE7F3" /></Style>
+        <Style Selector="Button"><Setter Property="CornerRadius" Value="10" /><Setter Property="FontSize" Value="17" /></Style>
+        <Style Selector="Button.primary"><Setter Property="Background" Value="#2979F3" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="16,10" /></Style>
+        <Style Selector="Button.secondary"><Setter Property="Background" Value="#EDF4FF" /><Setter Property="BorderBrush" Value="#CBD9EE" /><Setter Property="BorderThickness" Value="1" /><Setter Property="Padding" Value="14,9" /></Style>
+        <Style Selector="Button.link"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="#4E648B" /></Style>
+        <Style Selector="Button.pod"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Stretch" /></Style>
+        <Style Selector="Button.pod /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+        <Style Selector="Button.pod:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Opacity" Value="0.94" /></Style>
+        <Style Selector="Button.pod:pressed"><Setter Property="Opacity" Value="0.85" /></Style>
+        <Style Selector="Button.orbitAction"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="CornerRadius" Value="60" /><Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Stretch" /></Style>
+        <Style Selector="Button.orbitAction /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+        <Style Selector="Button.orbitAction:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+        <Style Selector="Button.chrome"><Setter Property="Width" Value="50" /><Setter Property="Height" Value="50" /><Setter Property="CornerRadius" Value="25" /><Setter Property="Background" Value="#AFFFFFFF" /><Setter Property="BorderBrush" Value="#EAFFFFFF" /><Setter Property="BorderThickness" Value="2" /><Setter Property="Padding" Value="0" /></Style>
+        <Style Selector="ToggleSwitch"><Setter Property="OnContent" Value="" /><Setter Property="OffContent" Value="" /><Setter Property="MinWidth" Value="0" /></Style>
+        <Style Selector="Button.pod, Button.orbitAction">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions"><Transitions><TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" /></Transitions></Setter>
+        </Style>
+        <Style Selector="Button.pod:pointerover, Button.orbitAction:pointerover"><Setter Property="RenderTransform" Value="scale(1.035)" /></Style>
+        <Style Selector="Button.pod:pressed, Button.orbitAction:pressed"><Setter Property="RenderTransform" Value="scale(0.98)" /></Style>
+        <Style Selector="Border.discPage"><Setter Property="ClipToBounds" Value="True" /></Style>
+        <Style Selector="TextBlock.discTitle"><Setter Property="FontSize" Value="23" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="TextAlignment" Value="Center" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+        <Style Selector="TextBlock.discStatus"><Setter Property="FontSize" Value="17" /><Setter Property="Foreground" Value="#315B92" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+        <Style Selector="TextBlock.discError"><Setter Property="FontSize" Value="17" /><Setter Property="Foreground" Value="#963D3D" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+        <Style Selector="Button.discNav"><Setter Property="Width" Value="36" /><Setter Property="Height" Value="36" /><Setter Property="CornerRadius" Value="18" /><Setter Property="Padding" Value="0" /><Setter Property="FontSize" Value="26" /><Setter Property="Background" Value="#EAF2FD" /><Setter Property="BorderThickness" Value="0" /></Style>
+    </Window.Styles>
+    <Grid>
+    <ScrollViewer x:Name="WorkspaceViewport" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+    <Viewbox x:Name="WorkspaceScale" Stretch="Uniform">
+        <Canvas x:Name="CircularSurface" Width="1254" Height="1254">
+            <controls:CircularGlassSurface StyleKind="Shell" Width="1254" Height="1254" IsHitTestVisible="False" />
+            <StackPanel Canvas.Left="505" Canvas.Top="146" Width="245" Spacing="0">
+                <TextBlock Text="联桥" FontSize="54" FontWeight="Bold" TextAlignment="Center" Foreground="#1E315F" />
+                <TextBlock Text="LinkBridge" FontSize="36" FontWeight="SemiBold" TextAlignment="Center" Foreground="#627697" />
+            </StackPanel>
+            <TextBlock Canvas.Left="468" Canvas.Top="282" Width="320" Text="一套键鼠 · 跨屏无界" FontSize="24" FontWeight="SemiBold" Foreground="#627697" TextAlignment="Center" />
+            <Border Canvas.Left="608" Canvas.Top="333" Width="38" Height="5" CornerRadius="3" Background="#5194FF" />
+            <Button x:Name="MinimizeButton" Classes="chrome" Canvas.Left="819" Canvas.Top="100" ToolTip.Tip="最小化"><TextBlock Text="−" FontSize="25" TextAlignment="Center" VerticalAlignment="Center" /></Button>
+            <Button x:Name="CloseButton" Classes="chrome" Canvas.Left="895" Canvas.Top="141" ToolTip.Tip="关闭联桥"><TextBlock Text="×" FontSize="28" TextAlignment="Center" VerticalAlignment="Center" /></Button>
+            <Button Classes="chrome" Canvas.Left="956" Canvas.Top="190" Click="ShowSettings" ToolTip.Tip="设置"><TextBlock Text="⚙" FontSize="25" TextAlignment="Center" VerticalAlignment="Center" /></Button>
+            <TextBlock Canvas.Left="566" Canvas.Top="350" Width="125" Text="0.0.1" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
+
+            <Image Canvas.Left="311" Canvas.Top="440" Width="618" Height="246" Source="{x:Static art:ConstellationAssets.Computers}" Stretch="Uniform" IsHitTestVisible="False" Opacity="{Binding PeerIllustrationOpacity}"><Image.Clip><GeometryGroup><RectangleGeometry Rect="0,0,245,246" /><RectangleGeometry Rect="367,0,251,246" /></GeometryGroup></Image.Clip></Image>
+            <controls:PeerConnectionFlow Canvas.Left="311" Canvas.Top="440" Width="618" Height="246" IsConnected="{Binding IsPeerConnected}" ReduceMotion="{Binding IsMotionReduced}" IsHitTestVisible="False" />
+            <TextBlock Canvas.Left="350" Canvas.Top="651" Width="230" Text="Windows" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
+            <TextBlock Canvas.Left="686" Canvas.Top="651" Width="220" Text="Mac" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
+            <Image Canvas.Left="422" Canvas.Top="650" Width="390" Height="130" Source="{x:Static art:ConstellationAssets.Keyboard}" Stretch="Uniform" IsHitTestVisible="False" />
+            <TextBlock Canvas.Left="605" Canvas.Top="748" Text="∞" FontSize="45" Foreground="#99BDFF" />
+            <TextBlock Canvas.Left="365" Canvas.Top="807" Width="510" Text="{Binding InputStatusText}" FontSize="18" Foreground="#4D648A" TextAlignment="Center" TextWrapping="Wrap" />
+
+            <Button Classes="pod" Canvas.Left="219" Canvas.Top="171" Width="240" Height="240" IsVisible="{Binding HasPrimaryCamera}" Command="{Binding ToggleDeviceCommand}" CommandParameter="{Binding PrimaryCamera}" ToolTip.Tip="{Binding PrimaryCamera.FullDescription}">
+                <Border CornerRadius="120">
+                    <Panel>
+                        <controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding PrimaryCamera.IsSelected}" IsHitTestVisible="False" />
+                        <Image Width="174" Height="174" Margin="0,14,0,0" VerticalAlignment="Top" Source="{x:Static art:ConstellationAssets.Camera}" Stretch="Uniform" IsVisible="{Binding !HasPreview}" />
+                        <Image Width="174" Height="174" Margin="0,22,0,0" VerticalAlignment="Top" Source="{Binding PreviewImage}" Stretch="UniformToFill" IsVisible="{Binding HasPreview}"><Image.Clip><EllipseGeometry Rect="0,0,174,174" /></Image.Clip></Image>
+                        <Ellipse Width="9" Height="9" Fill="#4387FF" Stroke="White" StrokeThickness="1.5" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="45,0,0,50" Opacity="{Binding PrimaryCamera.CheckOpacity}" />
+                        <TextBlock Text="摄像头" FontSize="25" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,15" />
+                        <Ellipse Width="19" Height="19" Fill="#1ECC88" Stroke="White" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,39,50" IsVisible="{Binding HasPreview}" />
+                    </Panel>
+                </Border>
+            </Button>
+            <Button Classes="pod" Canvas.Left="89" Canvas.Top="404" Width="215" Height="215" IsVisible="{Binding HasMicrophone}" Command="{Binding ToggleDeviceCommand}" CommandParameter="{Binding MicrophoneDevice}" ToolTip.Tip="{Binding MicrophoneDevice.FullDescription}">
+                <Border CornerRadius="108">
+                    <Panel>
+                        <controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding MicrophoneDevice.IsSelected}" IsHitTestVisible="False" />
+                        <Viewbox Width="58" Height="73" Margin="46,53,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"><Path Data="{Binding MicrophoneDevice.IconGeometry}" Stroke="#30476F" StrokeThickness="2" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" /></Viewbox>
+                        <Border Width="75" Height="30" CornerRadius="15" Background="#DBE9FF" Margin="0,73,20,0" HorizontalAlignment="Right" VerticalAlignment="Top"><TextBlock Text="{Binding MicrophoneSelectionText}" FontSize="17" Foreground="#3775DD" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                        <TextBlock Text="麦克风" FontSize="25" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,25" />
+                    </Panel>
+                </Border>
+            </Button>
+            <Button Classes="pod" Canvas.Left="786" Canvas.Top="197" Width="154" Height="154" IsVisible="{Binding HasSecondaryCamera}" Command="{Binding ToggleDeviceCommand}" CommandParameter="{Binding SecondaryCamera}" ToolTip.Tip="{Binding SecondaryCamera.FullDescription}"><Border CornerRadius="77"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding SecondaryCamera.IsSelected}" IsHitTestVisible="False" /><Image Source="{x:Static art:ConstellationAssets.Camera}" Width="126" Height="126" Stretch="Uniform" /><Ellipse Width="13" Height="13" Fill="#5BA5FF" Stroke="White" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,26" Opacity="{Binding SecondaryCamera.CheckOpacity}" /></Panel></Border></Button>
+            <Button Classes="pod" Canvas.Left="941" Canvas.Top="310" Width="153" Height="153" IsVisible="{Binding HasTertiaryCamera}" Command="{Binding ToggleDeviceCommand}" CommandParameter="{Binding TertiaryCamera}" ToolTip.Tip="{Binding TertiaryCamera.FullDescription}"><Border CornerRadius="77"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding TertiaryCamera.IsSelected}" IsHitTestVisible="False" /><Image Source="{x:Static art:ConstellationAssets.Camera}" Width="127" Height="125" Stretch="Uniform" /><Ellipse Width="13" Height="13" Fill="#5BA5FF" Stroke="White" StrokeThickness="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,22,24" Opacity="{Binding TertiaryCamera.CheckOpacity}" /></Panel></Border></Button>
+
+            <Button Classes="pod" Canvas.Left="943" Canvas.Top="480" Width="234" Height="234" IsVisible="{Binding HasPrimarySpeaker}" Click="ToggleAudio" ToolTip.Tip="{Binding PrimarySpeaker.FullDescription}">
+                <Border CornerRadius="117">
+                    <Panel>
+                        <controls:CircularGlassSurface StyleKind="Coral" IsHitTestVisible="False" />
+                        <Image Source="{x:Static art:ConstellationAssets.Speaker}" Width="167" Height="143" Stretch="Uniform" VerticalAlignment="Top" Margin="0,25,0,0" />
+                        <Border CornerRadius="18" Background="#DDE8FF" Padding="10,5" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,50"><TextBlock Text="{Binding PrimarySpeaker.PlaybackBadge}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="187" TextAlignment="Center" Foreground="#315483" /></Border>
+                        <TextBlock Text="音响" FontSize="25" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,15" />
+                    </Panel>
+                </Border>
+            </Button>
+            <Button Classes="pod" Canvas.Left="144" Canvas.Top="672" Width="177" Height="177" IsVisible="{Binding HasFirstExtraSpeaker}" Command="{Binding SelectPlaybackCommand}" CommandParameter="{Binding FirstExtraSpeaker}" Click="ToggleAudio" ToolTip.Tip="{Binding FirstExtraSpeaker.FullDescription}"><Border CornerRadius="89"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><Path Data="{Binding FirstExtraSpeaker.IconGeometry}" Width="65" Height="65" Stretch="Uniform" Stroke="#53698F" StrokeThickness="1.8" Fill="Transparent" VerticalAlignment="Top" Margin="0,38,0,0" /><TextBlock Text="{Binding FirstExtraSpeaker.OutputKindLabel}" FontSize="17" FontWeight="SemiBold" Foreground="#415C85" TextAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30" /></Panel></Border></Button>
+            <Button Classes="pod" Canvas.Left="909" Canvas.Top="731" Width="169" Height="169" IsVisible="{Binding HasSecondExtraSpeaker}" Command="{Binding SelectPlaybackCommand}" CommandParameter="{Binding SecondExtraSpeaker}" Click="ToggleAudio" ToolTip.Tip="{Binding SecondExtraSpeaker.FullDescription}"><Border CornerRadius="85"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><Path Data="{Binding SecondExtraSpeaker.IconGeometry}" Width="61" Height="61" Stretch="Uniform" Stroke="#53698F" StrokeThickness="1.8" Fill="Transparent" VerticalAlignment="Top" Margin="0,36,0,0" /><TextBlock Text="{Binding SecondExtraSpeaker.OutputKindLabel}" FontSize="17" FontWeight="SemiBold" Foreground="#415C85" TextAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,29" /></Panel></Border></Button>
+
+            <Canvas Canvas.Left="271" Canvas.Top="850" Width="717" Height="278">
+                <Path Data="M2 120 C2 56 164 1 359 1 C554 1 715 56 715 120 C715 209 557 276 359 276 C160 276 2 209 2 120 Z" Fill="#B8DBE7F8" Stroke="#EAFFFFFF" StrokeThickness="2" IsHitTestVisible="False" />
+                <Path Data="M37 119 C70 72 197 29 359 29 C522 29 648 73 680 119" Stroke="#60FFFFFF" StrokeThickness="1" Fill="Transparent" IsHitTestVisible="False" />
+                <Canvas>
+                    <TextBlock Canvas.Left="257" Canvas.Top="6" Width="205" Text="音频输出" FontSize="19" Foreground="#4F6488" TextAlignment="Center" />
+                    <Grid Canvas.Left="199" Canvas.Top="32" Width="316" ColumnDefinitions="30,*,30">
+                        <Button Classes="pod" Width="28" Height="28" Content="‹" FontSize="23" Command="{Binding PreviousPlaybackCommand}" ToolTip.Tip="上一个本机播放输出" />
+                        <Border Grid.Column="1" CornerRadius="12" Background="#DCE9FC" Padding="8,4" Margin="5,0">
+                            <TextBlock Text="{Binding SelectedPlaybackDevice.Label}" FontSize="17" TextTrimming="CharacterEllipsis" TextAlignment="Center" ToolTip.Tip="{Binding PlaybackSelectionText}" />
+                        </Border>
+                        <Button Grid.Column="2" Classes="pod" Width="28" Height="28" Content="›" FontSize="23" Command="{Binding NextPlaybackCommand}" ToolTip.Tip="下一个本机播放输出" />
+                    </Grid>
+                    <TextBlock Canvas.Left="146" Canvas.Top="83" Text="音量" FontSize="18" Foreground="#4F6488" />
+                    <Slider Canvas.Left="208" Canvas.Top="77" Width="270" Minimum="0" Maximum="100" IsEnabled="{Binding IsVolumeAvailable}" Value="{Binding VolumePercent, Mode=TwoWay}" Foreground="#3F8AFF" />
+                    <TextBlock Canvas.Left="507" Canvas.Top="81" Text="{Binding VolumeLabel}" FontSize="21" Foreground="#4F6488" />
+                    <Button x:Name="LayoutButton" Classes="orbitAction" Canvas.Left="103" Canvas.Top="123" Width="120" Height="107" ToolTip.Tip="屏幕布局"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding LayoutIcon}" Width="34" Height="30" Stretch="Uniform" Stroke="#435D86" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="屏幕布局" FontSize="17" TextAlignment="Center" /></StackPanel></Panel></Button>
+                    <Button x:Name="InputStatusButton" Classes="orbitAction" Canvas.Left="289" Canvas.Top="149" Width="126" Height="112" ToolTip.Tip="{Binding InputStatusText}"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding IsControlling}" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ConnectIcon}" Width="34" Height="30" Stretch="Uniform" Stroke="#3B70EF" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="跨屏连接" FontSize="19" FontWeight="SemiBold" TextAlignment="Center" /></StackPanel></Panel></Button>
+                    <Button x:Name="DevicesButton" Classes="orbitAction" Canvas.Left="485" Canvas.Top="121" Width="121" Height="107" ToolTip.Tip="跨屏取材 · 文字与截图直接粘贴"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ClipboardIcon}" Width="30" Height="32" Stretch="Uniform" Stroke="#435D86" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="跨屏取材" FontSize="17" TextAlignment="Center" /></StackPanel></Panel></Button>
+                </Canvas>
+            </Canvas>
+            <StackPanel Canvas.Left="390" Canvas.Top="1138" Width="474" Spacing="2">
+                <Grid IsVisible="{Binding HasFileTask}" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                    <StackPanel><TextBlock Text="{Binding FileTransferStatus}" FontSize="18" Foreground="#315B92" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FileTransferStatus}" /><ProgressBar Value="{Binding FileTransferPercent}" Maximum="100" Height="3" IsVisible="{Binding IsFileTransferBusy}" /></StackPanel>
+                    <Button Grid.Column="1" Classes="link" Content="×" Command="{Binding CancelFileTransferCommand}" Padding="6,0" ToolTip.Tip="取消或关闭文件任务" />
+                </Grid>
+                <TextBlock IsVisible="{Binding HasSettingsSaveError}" Text="{Binding SettingsSaveError}" FontSize="17" Foreground="#963D3D" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SettingsSaveError}" />
+                <TextBlock IsVisible="{Binding HasPersistentLogError}" Text="{Binding PersistentLogError}" FontSize="17" Foreground="#963D3D" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PersistentLogError}" />
+            </StackPanel>
+            
+            
+            
+            
+        </Canvas>
+    </Viewbox>
+    </ScrollViewer>
+    <Canvas x:Name="OverlayCanvas">
+        <Border x:Name="ClipboardFlyout" Classes="discPage" IsVisible="False"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="跨屏取材" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭取材页" /></Grid>
+                <StackPanel Grid.Row="1" Spacing="20" VerticalAlignment="Center" Margin="0,12">
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="共用剪贴板" VerticalAlignment="Center" FontWeight="SemiBold" /><ToggleSwitch Grid.Column="1" IsChecked="{Binding ShareClipboardAutomatically, Mode=TwoWay}" /></Grid>
+                    <TextBlock Text="{Binding ClipboardStatus}" Classes="discStatus" />
+                    <Button Classes="secondary" Content="重新送出" Command="{Binding RetryClipboardSendCommand}" IsVisible="{Binding HasClipboardSendError}" HorizontalAlignment="Center" />
+                    <Button Classes="primary" Content="截取 Mac 区域" Command="{Binding CaptureMacMaterialCommand}" IsEnabled="{Binding CanCaptureMac}" HorizontalAlignment="Center" />
+                    <TextBlock Text="划选后，回到 Windows 直接粘贴。" FontSize="17" TextAlignment="Center" Foreground="#536685" TextWrapping="Wrap" />
+                    <Rectangle Classes="sep" />
+                    <TextBlock Text="文字和图片：在任意一台复制，到另一台粘贴。" FontSize="17" Foreground="#536685" TextWrapping="Wrap" />
+                    <TextBlock Text="图片保留原尺寸 · PNG 无损传送" FontSize="16" Foreground="#7588A7" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+        </Panel></Border>
+        <Border x:Name="SettingsFlyout" Classes="discPage" IsVisible="{Binding IsSettingsOpen}"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="设置" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭设置" /></Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0"><StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="让另一台电脑找到我" VerticalAlignment="Center" /><ToggleSwitch Grid.Column="1" IsChecked="{Binding Settings.AutoDiscover, Mode=TwoWay}" /></Grid>
+                    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="登录后自动打开" VerticalAlignment="Center" /><ToggleSwitch Grid.Column="1" IsChecked="{Binding Settings.LaunchAtStartup, Mode=TwoWay}" /></Grid>
+                    <CheckBox x:Name="ReduceMotionToggle" Content="减少动画" IsChecked="{Binding IsMotionReduced, Mode=TwoWay}" FontSize="17" />
+                    <WrapPanel><Button Classes="secondary" Content="↔ 圆盘大小" Click="ShowWorkspaceSize" Margin="0,0,8,8" /><Button Classes="secondary" Content="设备" Click="ShowDevices" Margin="0,0,8,8" /><Button Classes="secondary" Content="连接帮助" Click="ShowDeviceSetup" Margin="0,0,8,8" /></WrapPanel>
+                    <TextBlock Text="联桥 LinkBridge · 0.0.1" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
+                    <TextBlock IsVisible="{Binding HasSettingsSaveError}" Text="{Binding SettingsSaveError}" Classes="discError" />
+                    <TextBlock IsVisible="{Binding HasPersistentLogError}" Text="{Binding PersistentLogError}" Classes="discError" />
+                    <Expander Header="更多选项" HorizontalAlignment="Stretch"><StackPanel Spacing="14" Margin="0,12,0,0">
+                        <TextBlock Text="{Binding Settings.DisplayName}" FontSize="16" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="媒体端口" VerticalAlignment="Center" /><TextBox Grid.Column="1" Width="88" Text="{Binding MediaPortText, Mode=TwoWay}" /></Grid>
+                        <TextBlock Text="端口修改下次启动生效。" FontSize="16" Foreground="#536685" />
+                        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="帧率" VerticalAlignment="Center" /><ComboBox Grid.Column="1" Width="88" ItemsSource="{Binding FrameRateOptions}" SelectedItem="{Binding Settings.FrameRate, Mode=TwoWay}" /></Grid>
+                        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="视频 Mbps" VerticalAlignment="Center" /><ComboBox Grid.Column="1" Width="88" ItemsSource="{Binding VideoBitrateOptions}" SelectedItem="{Binding Settings.VideoBitrateMbps, Mode=TwoWay}" /></Grid>
+                        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="音频 Kbps" VerticalAlignment="Center" /><ComboBox Grid.Column="1" Width="88" ItemsSource="{Binding AudioBitrateOptions}" SelectedItem="{Binding Settings.AudioBitrateKbps, Mode=TwoWay}" /></Grid>
+                        <Grid ColumnDefinitions="*,Auto"><TextBlock Text="硬件编码" VerticalAlignment="Center" /><ToggleSwitch Grid.Column="1" IsChecked="{Binding Settings.UseHardwareEncoder, Mode=TwoWay}" /></Grid>
+                        <TextBlock Text="{Binding StatusText}" FontSize="16" TextWrapping="Wrap" />
+                        <Expander Header="媒体预览"><StackPanel Spacing="10"><Border Height="160" CornerRadius="12" Background="#171B21"><Panel><Image Source="{Binding PreviewImage}" Stretch="Uniform" /><TextBlock Text="等待视频" IsVisible="{Binding !HasPreview}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" /></Panel></Border><TextBlock Text="{Binding SharedCameraStatusText}" FontSize="16" TextWrapping="Wrap" /></StackPanel></Expander>
+                        <Expander Header="运行日志"><StackPanel Spacing="10"><Button Classes="link" Content="清空记录" Command="{Binding ClearLogsCommand}" HorizontalAlignment="Left" /><ItemsControl ItemsSource="{Binding Logs}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" FontSize="16" Foreground="#536685" TextWrapping="Wrap" Margin="0,4" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Expander>
+                    </StackPanel></Expander>
+                </StackPanel></ScrollViewer>
+            </Grid>
+        </Panel></Border>
+        <Border x:Name="DevicesFlyout" Classes="discPage" IsVisible="False"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="设备" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭设备页" /></Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0"><StackPanel Spacing="14">
+                    <ItemsControl ItemsSource="{Binding Devices}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:DeviceTile">
+                        <Grid ColumnDefinitions="36,*,Auto" Margin="0,7" ToolTip.Tip="{Binding FullDescription}"><Path Data="{Binding IconGeometry}" Width="25" Height="25" Stretch="Uniform" Stroke="#4D6D9C" StrokeThickness="1.8" Fill="Transparent" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Spacing="4" Margin="0,0,8,0"><TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding OwnerLabel}" FontSize="16" Foreground="#536685" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding PlaybackBadge}" FontSize="16" Foreground="#315B92" TextWrapping="Wrap" /></StackPanel><CheckBox Grid.Column="2" IsVisible="{Binding IsMediaShareable}" IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" /></Grid>
+                    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    <Rectangle Classes="sep" />
+                    <Expander Header="连接状态"><StackPanel Spacing="12" Margin="0,10,0,0"><TextBlock Text="相机" FontWeight="SemiBold" /><TextBlock Text="{Binding SharedCameraStatusText}" Classes="discStatus" /><TextBlock Text="{Binding SharedCameraSourceStatusText}" Classes="discStatus" /><TextBlock Text="麦克风" FontWeight="SemiBold" /><TextBlock Text="{Binding SharedMicrophoneStatusText}" Classes="discStatus" /></StackPanel></Expander>
+                    <Button Classes="secondary" Content="连接帮助" Click="ShowDeviceSetup" HorizontalAlignment="Left" />
+                    <Expander Header="手动发送视频"><StackPanel Spacing="12" Margin="0,10,0,0"><ComboBox ItemsSource="{Binding Peers}" SelectedItem="{Binding SelectedPeer}" HorizontalAlignment="Stretch"><ComboBox.ItemTemplate><DataTemplate x:DataType="discovery:PeerInfo"><TextBlock Text="{Binding Name}" FontSize="17" /></DataTemplate></ComboBox.ItemTemplate></ComboBox><WrapPanel><Button Classes="primary" Content="发送媒体" Command="{Binding StartSharingCommand}" IsVisible="{Binding !IsSharing}" Margin="0,0,8,8" /><Button Classes="secondary" Content="取消" Command="{Binding StopSharingCommand}" IsVisible="{Binding IsStartingShare}" Margin="0,0,8,8" /><Button Classes="secondary" Content="停止发送" Command="{Binding StopSharingCommand}" IsVisible="{Binding IsSharing}" Margin="0,0,8,8" /><Button Classes="secondary" Content="开始接收" Command="{Binding StartReceivingCommand}" IsVisible="{Binding !IsReceiving}" Margin="0,0,8,8" /><Button Classes="secondary" Content="停止接收" Command="{Binding StopReceivingCommand}" IsVisible="{Binding IsReceiving}" Margin="0,0,8,8" /></WrapPanel></StackPanel></Expander>
+                </StackPanel></ScrollViewer>
+            </Grid>
+        </Panel></Border>
+        <Border x:Name="AudioFlyout" Classes="discPage" IsVisible="False"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="音响" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭音响页" /></Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0"><StackPanel Spacing="14">
+                    <TextBlock Text="{Binding SharedAudioStatus}" Classes="discStatus" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding DefaultPlaybackText}" Classes="discStatus" />
+                    <TextBlock Text="选择输出" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding PlaybackDevices}" SelectedItem="{Binding SelectedPlaybackDevice, Mode=TwoWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"><ComboBox.ItemTemplate><DataTemplate x:DataType="vm:PlaybackDeviceOption"><TextBlock Text="{Binding Label}" FontSize="17" TextWrapping="Wrap" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                    <Expander Header="播放详情"><TextBlock Text="{Binding ActualPlaybackText}" Classes="discStatus" Margin="0,10,0,0" /></Expander>
+                    <Button Classes="secondary" Content="试听" Command="{Binding TestPlaybackCommand}" HorizontalAlignment="Left" />
+                    <StackPanel IsVisible="{Binding CanSendSystemAudio}" Spacing="10"><CheckBox Content="共用 Windows 音响" IsChecked="{Binding ShareSystemAudioAutomatically, Mode=TwoWay}" FontSize="17" /><Button Classes="primary" Content="连接音响" Command="{Binding StartSystemAudioCommand}" IsVisible="{Binding !IsSendingSystemAudio}" /><Button Classes="secondary" Content="停止共享" Command="{Binding StopSystemAudioCommand}" IsVisible="{Binding IsSendingSystemAudio}" /></StackPanel>
+                    <Expander Header="另一台电脑的音响"><ItemsControl ItemsSource="{Binding RemoteAudioDevices}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:PlaybackDeviceOption"><StackPanel Spacing="4" Margin="0,8"><TextBlock Text="{Binding Label}" FontSize="17" TextWrapping="Wrap" /><TextBlock Text="{Binding Details}" FontSize="16" Foreground="#536685" TextWrapping="Wrap" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Expander>
+                    <Button Classes="link" Content="连接帮助" Click="ShowDeviceSetup" HorizontalAlignment="Left" />
+                </StackPanel></ScrollViewer>
+            </Grid>
+        </Panel></Border>
+        <Border x:Name="SetupFlyout" Classes="discPage" IsVisible="False"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*,Auto" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="连接帮助" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭准备页" /></Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,14,0,0"><StackPanel Spacing="14">
+                    <TextBlock Text="跨屏状态" FontWeight="SemiBold" /><TextBlock Text="{Binding InputStatusText}" Classes="discStatus" />
+                    <TextBlock x:Name="SetupMacAccessState" Classes="discStatus" IsVisible="False" />
+                    <Button x:Name="SetupAccessibilityButton" Classes="primary" Content="允许联桥控制 Mac" Tag="AccessibilityPermissions" Click="RunDeviceSetupAction" IsVisible="False" />
+                    <TextBlock x:Name="SetupPlatformText" FontSize="16" Foreground="#536685" TextWrapping="Wrap" />
+                    <WrapPanel><Button Classes="secondary" Content="允许麦克风" Tag="MicrophonePermissions" Click="RunDeviceSetupAction" Margin="0,0,8,8" /><Button Classes="secondary" Content="允许相机" Tag="CameraPermissions" Click="RunDeviceSetupAction" Margin="0,0,8,8" /></WrapPanel>
+                    <Expander Header="找不到联桥？"><StackPanel Spacing="10"><TextBlock x:Name="SetupPermissionText" FontSize="16" TextWrapping="Wrap" /><TextBlock x:Name="SetupApplicationText" FontSize="16" Foreground="#536685" TextWrapping="Wrap" /><Button Classes="secondary" Content="显示本应用" Tag="RevealApplication" Click="RunDeviceSetupAction" /><Button Classes="link" Content="系统权限说明 ↗" Tag="OpenPermissionHelp" Click="RunDeviceSetupAction" /></StackPanel></Expander>
+                    <Expander Header="共享麦克风如何启用"><StackPanel Spacing="10"><TextBlock Text="{Binding SharedMicrophoneStatusText}" Classes="discStatus" /><TextBlock x:Name="SetupBackendText" FontSize="16" TextWrapping="Wrap" /><WrapPanel><Button Classes="secondary" Content="准备目录" Tag="OpenPreparedBackendDirectory" Click="RunDeviceSetupAction" Margin="0,0,8,8" /><Button Classes="link" Content="官方来源 ↗" Tag="OpenBackendSource" Click="RunDeviceSetupAction" Margin="0,0,8,8" /></WrapPanel><Button Classes="link" Content="音频默认设备" Tag="AudioOutputs" Click="RunDeviceSetupAction" /></StackPanel></Expander>
+                    <Expander Header="共享相机如何启用"><StackPanel Spacing="10"><TextBlock Text="{Binding SharedCameraStatusText}" Classes="discStatus" /><TextBlock Text="{Binding SharedCameraSourceStatusText}" Classes="discStatus" /><TextBlock x:Name="SetupCameraText" FontSize="16" TextWrapping="Wrap" /></StackPanel></Expander>
+                </StackPanel></ScrollViewer>
+                <TextBlock Grid.Row="2" x:Name="SetupActionFeedback" FontSize="16" Foreground="#536685" TextWrapping="Wrap" MaxHeight="56" Margin="0,12,0,0" />
+            </Grid>
+        </Panel></Border>
+        <Border x:Name="SizeFlyout" Classes="discPage" IsVisible="False"><Panel>
+            <controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" />
+            <Grid RowDefinitions="Auto,*" Classes="discContent">
+                <Grid ColumnDefinitions="40,*,40" Classes="discHeader"><Button Classes="discNav" Content="‹" Click="ShowWorkspace" ToolTip.Tip="返回主页" /><TextBlock Grid.Column="1" Text="圆盘大小" Classes="discTitle" /><Button Grid.Column="2" Classes="discNav" Content="×" Click="ShowWorkspace" ToolTip.Tip="关闭尺寸页" /></Grid>
+                <StackPanel Grid.Row="1" Spacing="18" VerticalAlignment="Center"><TextBlock x:Name="WorkspaceSizeLabel" Text="640 × 640" FontSize="17" TextAlignment="Center" /><Slider x:Name="WorkspaceSizeSlider" Minimum="480" Maximum="1200" Value="640" SmallChange="16" LargeChange="64" TickFrequency="16" ToolTip.Tip="调整圆盘大小" /><Grid ColumnDefinitions="*,*,*"><Button Content="−" Click="DecreaseWorkspace" Margin="0,0,6,0" ToolTip.Tip="缩小" /><Button Grid.Column="1" Content="640" Click="ResetWorkspace" Margin="0,0,6,0" ToolTip.Tip="恢复默认" /><Button Grid.Column="2" Content="+" Click="IncreaseWorkspace" ToolTip.Tip="放大" /></Grid><TextBlock Text="拖右侧手柄也可调整" FontSize="16" Foreground="#536685" TextAlignment="Center" TextWrapping="Wrap" /></StackPanel>
+            </Grid>
+        </Panel></Border>
+        <Button x:Name="ResizeGrip" Width="38" Height="48" Content="↔" FontSize="22" Background="#F0F7FF" Foreground="#386FB7" BorderBrush="#C4D8EE" BorderThickness="1" CornerRadius="19" ToolTip.Tip="拖动调整圆盘 · 回车或设置中调整尺寸" Click="ShowWorkspaceSize" Cursor="SizeWestEast" />
+    </Canvas>
+    </Grid>
+</Window>

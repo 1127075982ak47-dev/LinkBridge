@@ -1,0 +1,17 @@
+name: Feature idea / 使用想法
+description: Explain a useful interaction across your two computers.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What task are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: interaction
+    attributes:
+      label: Proposed interaction
+  - type: textarea
+    id: environment
+    attributes:
+      label: Platforms and relevant applications

@@ -1,0 +1,11 @@
+Upstream software camera components:
+Microsoft Windows-Camera, MIT License, commit 626f8b19c5f367602f2e89c6b314573d3776c9df.
+Source: https://github.com/microsoft/Windows-Camera/tree/626f8b19c5f367602f2e89c6b314573d3776c9df/Samples/VirtualCamera/VirtualCameraMediaSource
+Original files retained in upstream/, license in LICENSE-Microsoft. Source/stream/activation implementations are adapted to IPC frames and LinkBridge-owned identifiers.
+
+Windows Implementation Library (WIL), MIT License, package 1.0.260126.7.
+Source: https://github.com/microsoft/wil
+NuGet official package SHA256: 7D67BC71DD0EDC342DB44EA0334AC9B6A1776514F81694B0B5B3C7AC9D608E42.
+License retained in LICENSE-WIL; dependencies are restored by build.ps1 and not required in final runtime.
+
+C++/WinRT headers are from the installed Windows SDK under its accompanying license. No Microsoft sample CLSID or company branding is used for registration.

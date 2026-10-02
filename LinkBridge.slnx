@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LinkBridge.App/LinkBridge.App.csproj" />
+    <Project Path="src/LinkBridge.Core/LinkBridge.Core.csproj" />
+    <Project Path="src/LinkBridge.Input/LinkBridge.Input.csproj" />
+    <Project Path="src/LinkBridge.Media/LinkBridge.Media.csproj" />
+    <Project Path="src/LinkBridge.Storage/LinkBridge.Storage.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/DeviceProbe/DeviceProbe.csproj" />
+    <Project Path="tools/InputProbe/InputProbe.csproj" />
+  </Folder>
+</Solution>

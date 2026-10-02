@@ -1,0 +1,52 @@
+#include "pch.h"
+#include <iostream>
+#include <chrono>
+#include <iomanip>
+#include <atomic>
+#include <sddl.h>
+#include <aclapi.h>
+void Hr(HRESULT result,const char* action){std::cout<<action<<" HRESULT=0x"<<std::hex<<static_cast<uint32_t>(result)<<std::dec<<std::endl;winrt::check_hresult(result);}
+std::wstring ProbeSid(){HANDLE token{};winrt::check_bool(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token));DWORD n{};GetTokenInformation(token,TokenUser,nullptr,0,&n);std::vector<BYTE>b(n);winrt::check_bool(GetTokenInformation(token,TokenUser,b.data(),n,&n));CloseHandle(token);PWSTR text{};winrt::check_bool(ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(b.data())->User.Sid,&text));std::wstring sid=text;LocalFree(text);return sid;}
+int wmain(int argc,wchar_t** argv)try {
+ std::cout<<std::unitbuf;
+ bool dual=false;int requestedFrames=100;
+ for(int arg=1;arg<argc;arg++){if(std::wstring(argv[arg])==L"--dual")dual=true;else if(std::wstring(argv[arg])==L"--frames"&&arg+1<argc)requestedFrames=_wtoi(argv[++arg]);else throw winrt::hresult_error(E_INVALIDARG);}
+ if(requestedFrames<2||requestedFrames>900)throw winrt::hresult_error(E_INVALIDARG);
+ const auto started=std::chrono::steady_clock::now();
+ std::jthread watchdog([&](std::stop_token stop){while(!stop.stop_requested()){if(std::chrono::steady_clock::now()-started>std::chrono::seconds(45)){std::cerr<<"Probe deadline 45s: terminating only this probe process\n";TerminateProcess(GetCurrentProcess(),124);}std::this_thread::sleep_for(std::chrono::milliseconds(100));}});
+ Hr(CoInitializeEx(nullptr,COINIT_MULTITHREADED),"CoInitializeEx");Hr(MFStartup(MF_VERSION),"MFStartup");
+ wil::com_ptr_nothrow<IMFAttributes> enumeration;Hr(MFCreateAttributes(&enumeration,1),"Create enumeration attributes");enumeration->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+ IMFActivate** list=nullptr;UINT32 count=0;Hr(MFEnumDeviceSources(enumeration.get(),&list,&count),"MFEnumDeviceSources");wil::com_ptr_nothrow<IMFActivate> selected;
+ for(UINT32 i=0;i<count;i++){wil::unique_cotaskmem_string name;UINT32 chars{};if(SUCCEEDED(list[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,&name,&chars))&&name&&
+  (wcsstr(name.get(),CAMERA_NAME)!=nullptr||wcsstr(name.get(),L"LinkBridge")!=nullptr)){selected=list[i];std::cout<<"Chosen registered device: "<<winrt::to_string(name.get())<<"\n";}list[i]->Release();}CoTaskMemFree(list);
+ if(!selected){std::cerr<<"LinkBridge registered camera not enumerated; no physical camera activated\n";return 3;}
+ wil::unique_cotaskmem_string device;UINT32 chars{};Hr(selected->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,&device,&chars),"Registered device symbolic link");std::cout<<"DeviceId: "<<winrt::to_string(device.get())<<"\n";
+ wil::com_ptr_nothrow<IMFMediaSource> source;Hr(selected->ActivateObject(IID_PPV_ARGS(&source)),"Platform camera activation (registered source)");
+ wil::com_ptr_nothrow<IMFAttributes> options;MFCreateAttributes(&options,2);options->SetUINT32(MF_LOW_LATENCY,TRUE);options->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING,FALSE);
+ wil::com_ptr_nothrow<IMFSourceReader> reader;Hr(MFCreateSourceReaderFromMediaSource(source.get(),options.get(),&reader),"MFCreateSourceReaderFromMediaSource");
+ wil::com_ptr_nothrow<IMFMediaType> requested;
+ for(DWORD index=0;index<32;index++){wil::com_ptr_nothrow<IMFMediaType> native;const auto result=reader->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),index,&native);if(result==MF_E_NO_MORE_TYPES)break;Hr(result,"GetNativeMediaType");UINT32 width{},height{},num{},den{};GUID subtype{};MFGetAttributeSize(native.get(),MF_MT_FRAME_SIZE,&width,&height);MFGetAttributeRatio(native.get(),MF_MT_FRAME_RATE,&num,&den);native->GetGUID(MF_MT_SUBTYPE,&subtype);std::cout<<"Native type "<<index<<": "<<width<<"x"<<height<<" @ "<<num<<"/"<<den<<" subtype="<<winrt::to_string(winrt::to_hstring(subtype))<<"\n";if(width==3840&&height==2160&&num==30&&den==1&&subtype==MFVideoFormat_RGB32)requested=native;}
+ if(!requested){source->Shutdown();std::cerr<<"Exact native 4K RGB32 30fps unavailable\n";return 4;}
+ Hr(reader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),nullptr,requested.get()),"Select exact native 3840x2160@30 RGB32");reader->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS),FALSE);Hr(reader->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),TRUE),"Select video stream");
+ int frames=0;LONGLONG previous=0,firstTimestamp=0,minDelta=LLONG_MAX,maxDelta=0;while(frames<requestedFrames){DWORD index{},flags{};LONGLONG timestamp{};wil::com_ptr_nothrow<IMFSample> sample;
+ Hr(reader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,&index,&flags,&timestamp,&sample),"ReadSample from registered platform camera");if(flags&MF_SOURCE_READERF_ERROR)throw winrt::hresult_error(E_FAIL);if(!sample){std::cout<<"No sample flags="<<flags<<"\n";continue;}
+ wil::com_ptr_nothrow<IMFMediaType> current;reader->GetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),&current);UINT32 width{},height{};GUID subtype{};MFGetAttributeSize(current.get(),MF_MT_FRAME_SIZE,&width,&height);current->GetGUID(MF_MT_SUBTYPE,&subtype);
+ LONGLONG duration{};const auto durationHr=sample->GetSampleDuration(&duration);wil::com_ptr_nothrow<IMFMediaBuffer> buffer;Hr(sample->ConvertToContiguousBuffer(&buffer),"Get real frame pixel buffer");BYTE* pixels{};DWORD length{},capacity{};Hr(buffer->Lock(&pixels,&capacity,&length),"Lock real frame");uint64_t checksum=0,nonBlack=0;for(DWORD p=0;p+3<length;p+=4096){checksum+=pixels[p]+pixels[p+1]+pixels[p+2];if(pixels[p]||pixels[p+1]||pixels[p+2])nonBlack++;}buffer->Unlock();
+ if(frames==0){const auto name=CameraMappingName(ProbeSid());HANDLE mapping=OpenFileMappingW(FILE_MAP_ALL_ACCESS,FALSE,name.c_str());Hr(mapping?S_OK:HRESULT_FROM_WIN32(GetLastError()),"Current-user open actual FrameServer Global mapping read/write");
+  PSECURITY_DESCRIPTOR sd=nullptr;Hr(HRESULT_FROM_WIN32(GetSecurityInfo(mapping,SE_KERNEL_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)),"Read actual Global mapping ACL");PWSTR text=nullptr;winrt::check_bool(ConvertSecurityDescriptorToStringSecurityDescriptorW(sd,SDDL_REVISION_1,DACL_SECURITY_INFORMATION,&text,nullptr));std::cout<<"Global mapping ACL: "<<winrt::to_string(text)<<"\n";LocalFree(text);LocalFree(sd);CloseHandle(mapping);}
+ if(frames>0){const auto delta=timestamp-previous;if(delta<=0)throw winrt::hresult_error(E_FAIL);minDelta=std::min(minDelta,delta);maxDelta=std::max(maxDelta,delta);}
+ std::cout<<"FRAME "<<++frames<<" "<<width<<"x"<<height<<" subtype="<<winrt::to_string(winrt::to_hstring(subtype))<<" bytes="<<length<<" ts="<<timestamp<<" delta="<<(previous?timestamp-previous:0)<<" duration="<<duration<<" durationHr=0x"<<std::hex<<static_cast<uint32_t>(durationHr)<<std::dec<<" sampledNonBlack="<<nonBlack<<" checksum="<<checksum<<"\n";if(frames==1)firstTimestamp=timestamp;previous=timestamp;
+ if(width!=3840||height!=2160||length<IPC_FRAME_BYTES)throw winrt::hresult_error(MF_E_INVALIDMEDIATYPE);
+ }
+ std::cout<<"MEASURED sample timestamps fps="<<(previous>firstTimestamp?(frames-1)*10000000.0/(previous-firstTimestamp):0)<<"; negotiated=30fps; frames="<<frames<<"; delta min="<<minDelta<<" max="<<maxDelta<<" (100ns)\n";
+ if(dual) {
+  wil::com_ptr_nothrow<IMFAttributes> secondAttributes;MFCreateAttributes(&secondAttributes,2);secondAttributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);secondAttributes->SetString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,device.get());
+  wil::com_ptr_nothrow<IMFMediaSource> secondSource;Hr(MFCreateDeviceSource(secondAttributes.get(),&secondSource),"Second independent registered platform source");wil::com_ptr_nothrow<IMFSourceReader> secondReader;Hr(MFCreateSourceReaderFromMediaSource(secondSource.get(),options.get(),&secondReader),"Second registered platform SourceReader");Hr(secondReader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),nullptr,requested.get()),"Second exact native 4K format");
+  DWORD stream{},flags{};LONGLONG timestamp{};wil::com_ptr_nothrow<IMFSample> sample;while(!sample){Hr(secondReader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,&stream,&flags,&timestamp,&sample),"Second consumer first frame");}
+  reader->Flush(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS));reader.reset();source->Shutdown();source.reset();
+  for(int n=0;n<5;n++){sample.reset();while(!sample){Hr(secondReader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,&stream,&flags,&timestamp,&sample),"Second consumer after first closed");}wil::com_ptr_nothrow<IMFMediaBuffer> pixels;sample->ConvertToContiguousBuffer(&pixels);DWORD length{};pixels->GetCurrentLength(&length);if(length<IPC_FRAME_BYTES)throw winrt::hresult_error(MF_E_INVALIDMEDIATYPE);}
+  sample.reset();secondReader->Flush(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS));secondReader.reset();secondSource->Shutdown();secondSource.reset();selected->ShutdownObject();selected.reset();secondAttributes.reset();requested.reset();options.reset();enumeration.reset();MFShutdown();CoUninitialize();std::cout<<"PASS two independent registered consumers: closing first leaves second reading real platform 4K frames; final close releases both. Offline imagery expected.\n";return 0;
+ }
+ reader->Flush(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS));reader.reset();const auto shutdown=source->Shutdown();std::cout<<"Registered source cleanup HRESULT=0x"<<std::hex<<static_cast<uint32_t>(shutdown)<<std::dec<<" (MF_E_SHUTDOWN after reader release is expected)\n";if(shutdown!=MF_E_SHUTDOWN)winrt::check_hresult(shutdown);source.reset();selected->ShutdownObject();selected.reset();
+ requested.reset();options.reset();enumeration.reset();MFShutdown();CoUninitialize();std::cout<<"PASS registered platform 4K format / "<<frames<<" frames. Expected offline placeholder; NOT proof of remote Mac 4K imagery.\n";return 0;
+}catch(const winrt::hresult_error& error){std::cerr<<"FAIL platform HRESULT=0x"<<std::hex<<static_cast<uint32_t>(error.code())<<" "<<winrt::to_string(error.message())<<"\n";return 1;}catch(...){std::cerr<<"FAIL HRESULT=0x"<<std::hex<<static_cast<uint32_t>(winrt::to_hresult())<<"\n";return 1;}
