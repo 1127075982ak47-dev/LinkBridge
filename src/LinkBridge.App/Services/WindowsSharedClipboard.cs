@@ -8,8 +8,9 @@ using SkiaSharp;
 namespace LinkBridge.App.Services;
 
 /// <summary>
-/// Native Windows text/image clipboard adapter. Startup history and file-drop paths are never
-/// emitted. Events run on a private STA thread; subscribers should queue their work immediately.
+/// Native Windows text/image/file clipboard adapter. Startup history is not emitted.
+/// File paths are local metadata for the streaming file sender, not clipboard wire payloads.
+/// Events run on a private STA thread; subscribers should queue their work immediately.
 /// PNG is lossless and never resized. Remote images also expose standard DIB formats for paste.
 /// </summary>
 public sealed class WindowsSharedClipboard : IDisposable
@@ -123,8 +124,26 @@ public sealed class WindowsSharedClipboard : IDisposable
         SharedClipboardContent? content = null;
         try
         {
-            // Explorer's copied files may advertise text paths as an alternate format. Never send them.
-            if (!IsClipboardFormatAvailable(CfHDrop))
+            // File intent takes precedence over alternate text and thumbnail formats.
+            if (IsClipboardFormatAvailable(CfHDrop))
+            {
+                var drop = GetClipboardData(CfHDrop);
+                var count = DragQueryFileW(drop, uint.MaxValue, null, 0);
+                if (count is > 0 and <= 128)
+                {
+                    var paths = new List<string>();
+                    for (uint index = 0; index < count; index++)
+                    {
+                        var length = DragQueryFileW(drop, index, null, 0);
+                        if (length is 0 or > 32767) throw new IOException("文件路径过长。");
+                        var path = new StringBuilder((int)length + 1);
+                        DragQueryFileW(drop, index, path, (uint)path.Capacity);
+                        paths.Add(path.ToString());
+                    }
+                    content = SharedClipboardFiles.Encode(paths);
+                }
+            }
+            else
             {
                 if (IsClipboardFormatAvailable(_pngFormat))
                 {
@@ -209,6 +228,15 @@ public sealed class WindowsSharedClipboard : IDisposable
 
     private List<(uint Format, byte[] Data)> PrepareFormats(SharedClipboardContent content)
     {
+        if (content.Kind == SharedClipboardFiles.Kind)
+        {
+            var names = Encoding.Unicode.GetBytes(string.Join('\0', SharedClipboardFiles.Decode(content)) + "\0\0");
+            var drop = new byte[20 + names.Length];
+            BinaryPrimitives.WriteUInt32LittleEndian(drop, 20);
+            BinaryPrimitives.WriteUInt32LittleEndian(drop.AsSpan(16), 1);
+            names.CopyTo(drop, 20);
+            return [(CfHDrop, drop), (RegisterClipboardFormatW("Preferred DropEffect"), new byte[] { 1, 0, 0, 0 })];
+        }
         if (content.Kind == "text")
         {
             var text = _utf8.GetString(content.Data);
@@ -308,6 +336,7 @@ public sealed class WindowsSharedClipboard : IDisposable
             if (content.Data.Length > TextLimit || content.Data.AsSpan().Contains((byte)0)) throw new ArgumentException("Invalid clipboard text.");
             _ = new UTF8Encoding(false, true).GetString(content.Data);
         }
+        else if (content.Kind == SharedClipboardFiles.Kind) _ = SharedClipboardFiles.Decode(content);
         else if (content.Kind == "png") ValidatePng(content.Data);
         else throw new ArgumentException("Unsupported clipboard content.");
     }
@@ -401,6 +430,7 @@ public sealed class WindowsSharedClipboard : IDisposable
     {
         public IntPtr Hwnd; public uint Kind; public UIntPtr WParam; public IntPtr LParam; public uint Time; public Point Point; public uint Private;
     }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern uint DragQueryFileW(IntPtr drop, uint index, StringBuilder? path, uint capacity);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandleW(string? module);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalLock(IntPtr memory);

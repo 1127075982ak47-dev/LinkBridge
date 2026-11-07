@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Rendering.Composition;
@@ -9,7 +9,7 @@ using Avalonia.VisualTree;
 namespace LinkBridge.App.Controls;
 
 /// <summary>
-/// A small connection wave between the two computer illustrations. Only three
+/// Two opposite connection waves between the computer illustrations. Only six
 /// cached dot visuals move in the compositor; the disk and wave never repaint per frame.
 /// </summary>
 public sealed class PeerConnectionFlow : Panel
@@ -23,13 +23,14 @@ public sealed class PeerConnectionFlow : Panel
     public bool ReduceMotion { get => GetValue(ReduceMotionProperty); set => SetValue(ReduceMotionProperty, value); }
 
     private const double DesignWidth = 618, DesignHeight = 246, DotRadius = 12;
-    private static readonly Point[] Knots = [new(165, 95), new(232, 120), new(305, 77), new(358, 108), new(410, 95)];
-    private static readonly StreamGeometry Wave = CreateWave();
+    private static readonly Point[] Knots = [new(229, 100), new(267, 85), new(307, 100), new(349, 115), new(388, 100)];
+    private static readonly StreamGeometry Wave = CreateWave(false);
+    private static readonly StreamGeometry ReturnWave = CreateWave(true);
     private static readonly Point[] PathSamples = SampleWave();
-    private static readonly IPen[] BlueLine = [Pen("#0877CFFF", 10), Pen("#167ECBFF", 6), Pen("#4398DBFF", 3.8), Pen("#BA73CEFF", 1.8), Pen("#EAF3FCFF", .85)];
+    private static readonly IPen[] BlueLine = [Pen("#0877CFFF", 6), Pen("#167ECBFF", 4), Pen("#4398DBFF", 2.8), Pen("#BA73CEFF", 1.5), Pen("#EAF3FCFF", .7)];
     private static readonly IPen GrayLine = Pen("#709BA9BC", 1.35);
     private static readonly IBrush EndpointBrush = new SolidColorBrush(Color.Parse("#DDE8F9FF")).ToImmutable();
-    private readonly GlowDot[] _dots = [new(), new(), new()];
+    private readonly GlowDot[] _dots = [new(), new(), new(), new(), new(), new()];
     private readonly WaveLayer _line;
     private readonly List<CompositionVisual> _moving = [];
     private readonly List<Visual> _visibilityAncestors = [];
@@ -121,14 +122,17 @@ public sealed class PeerConnectionFlow : Panel
             var opacity = visual.Compositor.CreateScalarKeyFrameAnimation();
             offset.Duration = opacity.Duration = TimeSpan.FromSeconds(3.8);
             offset.IterationBehavior = opacity.IterationBehavior = AnimationIterationBehavior.Forever;
-            var shift = index / 3d;
+            var returning = index >= 3;
+            var shift = index % 3 / 3d;
             var times = new SortedSet<double>(Enumerable.Range(0, 97).Select(step => step / 96d));
             if (shift > 0) { times.Add(1 - shift - .0001); times.Add(1 - shift + .0001); }
             foreach (var time in times)
             {
                 var phase = time + shift;
                 if (phase > 1) phase -= 1;
-                var point = AtDistance(phase);
+                // Upper path travels Windows -> Mac; mirrored path returns Mac -> Windows.
+                var point = AtDistance(returning ? 1 - phase : phase);
+                if (returning) point = new Point(point.X, 200 - point.Y);
                 offset.InsertKeyFrame((float)time, origin + new Vector3D(point.X * sx, point.Y * sy, 0));
                 var fade = Math.Clamp(Math.Min(phase / .10, (1 - phase) / .10), 0, 1);
                 opacity.InsertKeyFrame((float)time, (float)(fade * .95));
@@ -161,12 +165,13 @@ public sealed class PeerConnectionFlow : Panel
             new Point(end.X - (next.X - start.X) / 6, end.Y - (next.Y - start.Y) / 6));
     }
 
-    private static StreamGeometry CreateWave()
+    private static StreamGeometry CreateWave(bool reflected)
     {
         var geometry = new StreamGeometry();
-        using var path = geometry.Open(); path.BeginFigure(Knots[0], false);
+        Point Reflect(Point point) => reflected ? new Point(point.X, 200 - point.Y) : point;
+        using var path = geometry.Open(); path.BeginFigure(Reflect(Knots[0]), false);
         for (var index = 0; index < Knots.Length - 1; index++)
-        { var controls = Controls(index); path.CubicBezierTo(controls.C1, controls.C2, Knots[index + 1]); }
+        { var controls = Controls(index); path.CubicBezierTo(Reflect(controls.C1), Reflect(controls.C2), Reflect(Knots[index + 1])); }
         path.EndFigure(false); return geometry;
     }
 
@@ -224,8 +229,8 @@ public sealed class PeerConnectionFlow : Panel
         {
             if (Bounds.Width <= 0 || Bounds.Height <= 0) return;
             using var scale = context.PushTransform(Matrix.CreateScale(Bounds.Width / DesignWidth, Bounds.Height / DesignHeight));
-            if (!owner.IsConnected) { context.DrawGeometry(null, GrayLine, Wave); return; }
-            foreach (var pen in BlueLine) context.DrawGeometry(null, pen, Wave);
+            if (!owner.IsConnected) { context.DrawGeometry(null, GrayLine, Wave); context.DrawGeometry(null, GrayLine, ReturnWave); return; }
+            foreach (var pen in BlueLine) { context.DrawGeometry(null, pen, Wave); context.DrawGeometry(null, pen, ReturnWave); }
             context.DrawEllipse(EndpointBrush, null, Knots[0], 1.75, 1.75);
             context.DrawEllipse(EndpointBrush, null, Knots[^1], 1.75, 1.75);
         }

@@ -666,6 +666,19 @@ public partial class MainViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial string InputStatusText { get; set; } = "跨屏连接中…";
+    private string InputReadyText => ActiveScreenPortal is { } portal ? $"跨屏已就绪 · 从 {portal.Local.Name} 的{(portal.Edge switch { "bottom" => "下", "top" => "上", "left" => "左", _ => "右" })}边缘进入 Mac" : Settings.InputScreenEdge == "bottom"
+        ? "跨屏已就绪 · 从右侧屏幕下边缘进入 Mac" : "跨屏已就绪 · 鼠标向右进入 Mac";
+    private BottomScreenSeam? ConfiguredBottomSeam => Settings.InputScreenEdge == "bottom"
+        ? new(Settings.InputScreenX, Settings.InputScreenY, Settings.InputScreenWidth, Settings.InputScreenHeight, Settings.InputSeamWidth) : null;
+    public LinkBridge.Core.DisplayLayout.ScreenPortal? ActiveScreenPortal { get; set; }
+    public string LayoutPeerAddress => SelectedPeer?.Address ?? (OperatingSystem.IsMacOS() ? Settings.AllowedControllerAddress : Settings.LastConnectedPeerAddress);
+    public bool IsLayoutPeer(string address) => address == Settings.LastConnectedPeerAddress || address == Settings.AllowedControllerAddress ||
+        _discovery?.Snapshot().Any(p => p.Address == address) == true;
+    public void PauseForScreenChange()
+    {
+        _inputCapture?.Stop(); _fileDragEdge?.SetEnabled(false); IsControlling = false;
+        InputStatusText = "屏幕发生变化 · 请打开屏幕布局确认";
+    }
 
     public void ReportMacInputAccess(bool allowed)
     {
@@ -733,11 +746,17 @@ public partial class MainViewModel : ViewModelBase
 
         _initialized = true;
 
+        if (Workspace.Enabled)
+        {
+            await StartWorkspaceAsync();
+            return;
+        }
+
         var ffmpeg = FfmpegLocator.ExecutablePath;
         if (SettingsStore.LastLoadError is { } settingsError) AppendLog("[提示] " + settingsError);
-        EngineText = ffmpeg is null ? "未找到 ffmpeg 引擎" : $"引擎就绪 · {PlatformInfo.DisplayName}";
+        EngineText = ffmpeg is null ? "键鼠与文件就绪 · 媒体引擎未安装" : $"引擎就绪 · {PlatformInfo.DisplayName}";
         AppendLog(ffmpeg is null
-            ? "[LinkBridge] 没有找到 ffmpeg，请先安装后再试。"
+            ? "[LinkBridge] 未安装可选 FFmpeg 媒体引擎；不影响本轮键鼠、布局、剪贴板与文件公测。"
             : $"[LinkBridge] 使用引擎：{ffmpeg}");
 
         {
@@ -815,6 +834,8 @@ public partial class MainViewModel : ViewModelBase
             };
             _discovery.PeersChanged += list =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => SyncPeers(list));
+            _discovery.ConnectionRequested += address =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(async () => await HandleConnectionRequestAsync(address));
             _discovery.Start();
             AppendLog(Settings.AutoDiscover ? $"[LinkBridge] 已在局域网广播，本机名 {Settings.DisplayName}" : "[LinkBridge] 已隐藏发现广播，配对连接服务仍可用");
         }
@@ -830,6 +851,7 @@ public partial class MainViewModel : ViewModelBase
                 _inputServer.Start();
                 InitializeMacFileDrag();
                 InitializeSharedClipboard(Settings.AllowedControllerAddress);
+                InitializeWindowRoaming();
                 InputStatusText = MacInputInjector.IsTrusted()
                     ? "Mac 在右侧 · 接收 Windows 跨屏键鼠"
                     : "Mac 键鼠控制待授权 · 请允许设备控制权限";
@@ -942,28 +964,37 @@ public partial class MainViewModel : ViewModelBase
         {
             try
             {
+                if (ActiveScreenPortal is null)
+                { InputStatusText = "正在核对保存的屏幕布局…"; return; }
                 _inputCapture = new WindowsInputCapture(
                     packet => _inputClient?.TrySend(packet),
                     () => _inputClient?.IsConnected == true,
-                    Settings.RemoteDisplayWidth,
-                    Settings.RemoteDisplayHeight);
+                    ActiveScreenPortal?.Remote.Width ?? Settings.RemoteDisplayWidth,
+                    ActiveScreenPortal?.Remote.Height ?? Settings.RemoteDisplayHeight,
+                    ActiveScreenPortal is null ? ConfiguredBottomSeam : null, ActiveScreenPortal);
                 _inputCapture.RemoteEntered += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     IsControlling = true;
-                    InputStatusText = "正在控制 Mac · 向左滑回 Windows";
+                    InputStatusText = ActiveScreenPortal is { } active ? $"正在控制 Mac · 向{(active.Edge switch { "bottom" => "上", "top" => "下", "left" => "右", _ => "左" })}返回 Windows" :
+                        Settings.InputScreenEdge == "bottom" ? "正在控制 Mac · 向上滑回右侧 Windows 屏幕" : "正在控制 Mac · 向左滑回 Windows";
                     AppendLog($"[LinkBridge] 鼠标跨入 Mac，键盘已跟随（Windows X={_inputCapture?.LastEntryX}）");
                 });
                 _inputCapture.RemoteExited += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     IsControlling = false;
-                    InputStatusText = "跨屏已就绪 · 鼠标向右进入 Mac";
+                    InputStatusText = InputReadyText;
                     AppendLog("[LinkBridge] 鼠标返回 Windows");
                 });
                 _inputCapture.ExitRequested += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     _inputCapture?.LeaveRemote());
                 _inputCapture.Start();
                 InitializeWindowsFileDrag();
+                InitializeWindowRoaming();
                 AppendLog($"[LinkBridge] Windows 屏幕边界 {_inputCapture.LocalWidth}×{_inputCapture.LocalHeight}");
+                if (ActiveScreenPortal is { } activePortal)
+                    AppendLog($"[布局] {activePortal.Local.Name} · {activePortal.Edge} · 接缝 {activePortal.Start}..{activePortal.End-1} → {activePortal.Remote.Name} {activePortal.Remote.Width}×{activePortal.Remote.Height} · 停留 {activePortal.DelayMs}ms");
+                else if (ConfiguredBottomSeam is { } seam)
+                    AppendLog($"[布局] Mac 在右侧屏幕下方 · Windows 接缝 X={seam.Start}..{seam.End - 1}, Y={seam.Y + seam.Height - 1} · Mac {_inputCapture.LocalWidth} 主屏独立，远端 {Settings.RemoteDisplayWidth}×{Settings.RemoteDisplayHeight}");
                 _inputTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                 _inputTimer.Tick += async (_, _) => await EnsureInputConnectionAsync();
                 _inputTimer.Start();
@@ -988,21 +1019,35 @@ public partial class MainViewModel : ViewModelBase
         return ready;
     }
 
-    private async Task EnsureInputConnectionAsync()
+    private async Task EnsureInputConnectionAsync(string? requestedAddress = null, CancellationToken cancellationToken = default)
     {
         if (_shuttingDown) return;
-        if (_inputClient is not null)
+        if (_inputClient?.IsConnected == true)
         {
             _inputClient.TrySend(default); // keepalive; Mac ignores packet type 0
             return;
         }
         if (_connectingInput) return;
         var peer = Peers.FirstOrDefault(p => p.Platform.Contains("Mac", StringComparison.OrdinalIgnoreCase));
+        if (System.Net.IPAddress.TryParse(requestedAddress, out var requested) &&
+            requested.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(requested))
+            peer = new PeerInfo("Mac", requested.ToString(), "macOS", Settings.MediaPort, DateTimeOffset.Now);
         if (peer is null) return;
         _connectingInput = true;
         try
         {
-            var client = await InputBridgeClient.ConnectAsync(peer.Address, Settings.InputPairingSecret, _lifetimeCts.Token);
+            var previousClient = _inputClient;
+            _inputClient = null;
+            if (previousClient is not null)
+            {
+                _inputCapture?.LeaveRemote();
+                IsPeerConnected = false;
+                _filePeerAddress = null;
+                UpdateFileEdge();
+                await previousClient.DisposeAsync();
+            }
+            var client = await InputBridgeClient.ConnectAsync(peer.Address, Settings.InputPairingSecret,
+                cancellationToken.CanBeCanceled ? cancellationToken : _lifetimeCts.Token);
             if (_shuttingDown || !client.IsConnected) { await client.DisposeAsync(); return; }
             client.Disconnected += () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
@@ -1019,11 +1064,16 @@ public partial class MainViewModel : ViewModelBase
             if (!client.IsConnected) { await client.DisposeAsync(); return; }
             _inputClient = client;
             _filePeerAddress = peer.Address;
+            if (Settings.LastConnectedPeerAddress != peer.Address)
+            {
+                Settings.LastConnectedPeerAddress = peer.Address;
+                SaveSettings();
+            }
             IsPeerConnected = true;
             InitializeSharedClipboard(peer.Address);
             UpdateFileEdge();
             _lastInputError = null;
-            InputStatusText = "跨屏已就绪 · 鼠标向右进入 Mac";
+            InputStatusText = InputReadyText;
             AppendLog($"[LinkBridge] Mac 跨屏键鼠已就绪：{peer.Address}");
         }
         catch (Exception ex)
@@ -1630,6 +1680,9 @@ public partial class MainViewModel : ViewModelBase
         _receiver.Dispose();
         // Invoke all synchronous cancellation prefixes before awaiting any slow cleanup.
         var stops = new List<Task>();
+        stops.Add(WorkspaceRuntime.StopAsync());
+        if(WorkspaceWindows is not null)stops.Add(WorkspaceWindows.DisposeAsync().AsTask());
+        stops.Add(StopWindowRoamingAsync());
         stops.Add(StopFileDragAsync());
         stops.Add(StopSharedClipboardAsync());
         if (_speakerCoordinator is not null) stops.Add(_speakerCoordinator.DisposeAsync().AsTask());

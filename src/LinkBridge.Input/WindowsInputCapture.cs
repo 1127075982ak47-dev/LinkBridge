@@ -1,9 +1,10 @@
+using LinkBridge.Core.DisplayLayout;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace LinkBridge.Input;
 
-/// <summary>Windows is left of the Mac. Pointer crossing selects the active machine.</summary>
+/// <summary>Pointer crossing selects the active machine using the configured screen seam.</summary>
 public sealed class WindowsInputCapture : IDisposable
 {
     private const int WhKeyboardLl = 13, WhMouseLl = 14;
@@ -43,11 +44,17 @@ public sealed class WindowsInputCapture : IDisposable
     private readonly HashSet<ushort> _physicalKeys = [];
     private readonly HashSet<byte> _physicalButtons = [];
     private readonly int _remoteWidth, _remoteHeight;
+    private readonly ScreenPortal? _portal;
+    private long _edgeStarted;
     private IntPtr _keyboard, _mouse;
     private Point _anchor, _lastLocal;
     private int _localWidth, _localHeight, _remoteX, _remoteY, _cursorHideCalls;
-    private bool _remote, _exitHotkeyHeld, _controlDown, _altDown, _edgeBlockedByHeldInput, _fileDrag;
+    private bool _remote, _exitHotkeyHeld, _controlDown, _altDown, _edgeBlockedByHeldInput, _fileDrag, _windowDrag;
     private long _lastDisplayRefreshTick;
+    private readonly FileDragReleaseGate _fileReleaseGate = new();
+    private int _ownerThreadId;
+    /// <summary>Routing marker, not an authorization token. Only authenticated roaming sessions may inject.</summary>
+    public static readonly UIntPtr RoamingInjectedMarker = new(0x4C425257u);
 
     public event Action? RemoteEntered;
     public event Action? RemoteExited;
@@ -56,11 +63,36 @@ public sealed class WindowsInputCapture : IDisposable
     public event Action? FileDragReleased;
     /// <summary>Raised on the input hook thread when Escape, return to Windows, or disconnect cancels the drag.</summary>
     public event Action? FileDragCancelled;
+    /// <summary>Runs on the hook owner thread after the matching physical left-up was sent.</summary>
+    public event Action? WindowDragReleased;
+    /// <summary>Runs on the hook owner thread on Escape, return to Windows, or disconnect.</summary>
+    public event Action? WindowDragCancelled;
+    /// <summary>Record the caption before asynchronous native move notifications change the hit target.</summary>
+    public event Action<int, int>? LocalLeftPressed;
+    public event Action? LocalLeftReleased;
     public bool IsActive => _keyboard != IntPtr.Zero && _mouse != IntPtr.Zero;
     public bool IsRemote => _remote;
+    public bool IsLeftButtonHeld => _physicalButtons.Contains(0);
+    public bool IsWindowDragHeld => _windowDrag && IsLeftButtonHeld;
     public int LocalWidth => _localWidth;
     public int LocalHeight => _localHeight;
     public int LastEntryX { get; private set; }
+
+    /// <summary>Invoke on the hook dispatcher. Marked native events pass locally without KVM echo.</summary>
+    public void ExecuteRoamingInput(Action inject)
+    {
+        ArgumentNullException.ThrowIfNull(inject);
+        if (IsActive && Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("窗口输入必须在跨屏钩子的所属线程执行。");
+        try { inject(); }
+        finally
+        {
+            // Keep the physical mouse's next delta relative to its original Mac-control anchor.
+            // This unmarked zero-delta warp is swallowed by OnMouse and not delivered to the app.
+            if (_remote) SetCursorPos(_anchor.X, _anchor.Y);
+            else GetCursorPos(out _lastLocal);
+        }
+    }
 
     /// <summary>
     /// On the capture's dispatcher thread, enter normal remote control for a deliberate Mac
@@ -83,10 +115,11 @@ public sealed class WindowsInputCapture : IDisposable
     /// </summary>
     public bool BeginFileDrag()
     {
-        if (!IsActive || _remote || !_isConnected() || (GetAsyncKeyState(1) & 0x8000) == 0 ||
+        if (!IsActive || _remote || !_isConnected() || !IsLeftButtonHeld ||
             _physicalKeys.Count != 0 || !GetCursorPos(out var position)) return false;
         RefreshDisplayBounds();
         _fileDrag = true;
+        _fileReleaseGate.Arm();
         _heldButtons.Add(0);
         // Place the Mac pointer with ordinary movement first. Arming before these reset packets
         // would turn the -100000/-100000 reset into a dragged event over unrelated Mac content.
@@ -95,7 +128,91 @@ public sealed class WindowsInputCapture : IDisposable
         return true;
     }
 
-    public WindowsInputCapture(Action<InputPacket> send, Func<bool> isConnected, int remoteWidth, int remoteHeight)
+    public void ConfirmFileDragReady()
+    {
+        if (_fileDrag && _remote && _fileReleaseGate.Ready())
+        {
+            // AppKit needs a real dragged movement to discover the destination;
+            // a zero-delta event followed by mouse-up reports operation=none.
+            // Refresh hit-testing and return to the user's exact release position.
+            var delta = _remoteX < _remoteWidth - 9 ? 8 : -8;
+            _send(new InputPacket(InputEventType.Move, 0, 0, delta, 0));
+            _send(new InputPacket(InputEventType.Move, 0, 0, -delta, 0));
+            SendFileDragRelease();
+        }
+    }
+
+    public void CancelFileDrag()
+    {
+        _fileReleaseGate.Cancel();
+        if (!_fileDrag) return;
+        _fileDrag = false;
+        _send(new InputPacket(InputEventType.FileDrag, 0, 0, 0, 0));
+        if (_heldButtons.Remove(0)) _send(new InputPacket(InputEventType.Button, 0, 0, 0, 0));
+    }
+
+    private void SendFileDragRelease()
+    {
+        _heldButtons.Remove(0);
+        _send(new InputPacket(InputEventType.Button, 0, 0, 0, 0));
+        _fileDrag = false;
+        FileDragReleased?.Invoke();
+    }
+
+    /// <summary>
+    /// Call on the hook owner dispatcher after source WM_CANCELMODE has ended native caption
+    /// capture. Continue remote pointer movement with the real left button still held. The Mac
+    /// proxy follows that pointer through its own window-drag loop: never synthesize a click or
+    /// use FileDrag, which would arm Finder. A later physical left-up sends ordinary ButtonUp.
+    /// </summary>
+    public bool BeginWindowDrag(bool allowReleasedHandoff = false)
+    {
+        if (IsActive && Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("窗口拖动必须在跨屏钩子的所属线程开始。");
+        var held = IsLeftButtonHeld;
+        if (!IsActive || _remote || _fileDrag || !_isConnected() || (!held && !allowReleasedHandoff) ||
+            _physicalKeys.Count != 0 || _physicalButtons.Any(button => button != 0) || HasOtherHeldInput() ||
+            !GetCursorPos(out var position)) return false;
+        RefreshDisplayBounds();
+        _windowDrag = held;
+        if (held) _heldButtons.Add(0);
+        EnterRemote(position.X, position.Y);
+        return true;
+    }
+
+    /// <summary>
+    /// The authenticated proxy reports a later caption drag through drag-start/drag-end. Call on
+    /// the hook owner dispatcher so crossing the Mac edge waits for its return-drag message.
+    /// This changes only routing state: the ordinary KVM button-down/up already reached Mac.
+    /// </summary>
+    public bool GuardRemoteWindowDrag(bool active)
+    {
+        if (IsActive && Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("窗口拖动状态必须在跨屏钩子的所属线程更新。");
+        if (!active) { _windowDrag = false; return true; }
+        if (!IsActive || !_remote || _fileDrag || !IsLeftButtonHeld) return false;
+        _windowDrag = true;
+        _heldButtons.Add(0);
+        return true;
+    }
+
+    private static bool HasOtherHeldInput()
+    {
+        foreach (var key in new[] { 2, 4, 5, 6 }) if ((GetAsyncKeyState(key) & 0x8000) != 0) return true;
+        for (var key = 8; key < 256; key++) if ((GetAsyncKeyState(key) & 0x8000) != 0) return true;
+        return false;
+    }
+
+    /// <summary>End only the proxy drag state. KVM control stays remote; no physical button is manufactured.</summary>
+    public void EndWindowDrag()
+    {
+        if (!_windowDrag) return;
+        _windowDrag = false;
+        if (_heldButtons.Remove(0)) _send(new InputPacket(InputEventType.Button, 0, 0, 0, 0));
+    }
+
+    public WindowsInputCapture(Action<InputPacket> send, Func<bool> isConnected, int remoteWidth, int remoteHeight,
+        BottomScreenSeam? bottomSeam = null, ScreenPortal? portal = null)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         if (remoteWidth <= 0 || remoteHeight <= 0) throw new ArgumentOutOfRangeException(nameof(remoteWidth));
@@ -103,6 +220,12 @@ public sealed class WindowsInputCapture : IDisposable
         _isConnected = isConnected;
         _remoteWidth = remoteWidth;
         _remoteHeight = remoteHeight;
+        if (bottomSeam is { } seam && (seam.Width < 320 || seam.Height < 200 || seam.SeamWidth < 1 || seam.SeamWidth > seam.Width))
+            throw new ArgumentOutOfRangeException(nameof(bottomSeam));
+        _portal = portal ?? (bottomSeam is { } b ? new ScreenPortal(
+            new ScreenInfo("legacy-local","Windows",b.X,b.Y,b.Width,b.Height,true),
+            new ScreenInfo("legacy-remote","Mac",0,0,remoteWidth,remoteHeight,true),
+            "bottom",b.Start,b.End,0,0) : null);
         _keyboardProc = OnKeyboard;
         _mouseProc = OnMouse;
     }
@@ -110,6 +233,7 @@ public sealed class WindowsInputCapture : IDisposable
     public void Start()
     {
         if (IsActive) return;
+        _ownerThreadId = Environment.CurrentManagedThreadId;
         _localWidth = GetSystemMetrics(0);
         _localHeight = GetSystemMetrics(1);
         _lastDisplayRefreshTick = Environment.TickCount64;
@@ -147,7 +271,10 @@ public sealed class WindowsInputCapture : IDisposable
     {
         if (!_remote) return;
         var cancelledFileDrag = _fileDrag;
+        _fileReleaseGate.Cancel();
+        var cancelledWindowDrag = _windowDrag;
         _fileDrag = false;
+        _windowDrag = false;
         _remote = false;
         if (cancelledFileDrag)
         {
@@ -165,10 +292,14 @@ public sealed class WindowsInputCapture : IDisposable
         for (var i = 0; i < _cursorHideCalls; i++) ShowCursor(true);
         _cursorHideCalls = 0;
         var localY = Math.Clamp((int)((long)_remoteY * _localHeight / _remoteHeight), 1, _localHeight - 2);
-        _lastLocal = new Point { X = _localWidth - 32, Y = localY };
+        var returnPoint = _portal?.Leave(_remoteX, _remoteY);
+        _lastLocal = returnPoint is { } p ? new Point { X = p.X, Y = p.Y }
+            : new Point { X = _localWidth - 32, Y = localY };
+        _edgeStarted = 0;
         SetCursorPos(_lastLocal.X, _lastLocal.Y);
         _controlDown = _altDown = _exitHotkeyHeld = false;
         if (cancelledFileDrag) FileDragCancelled?.Invoke();
+        if (cancelledWindowDrag) WindowDragCancelled?.Invoke();
         RemoteExited?.Invoke();
     }
 
@@ -178,11 +309,19 @@ public sealed class WindowsInputCapture : IDisposable
         LastEntryX = localX;
         _remoteX = 64;
         _remoteY = Math.Clamp((int)((long)localY * _remoteHeight / _localHeight), 1, _remoteHeight - 2);
+        if (_portal is { } seam)
+        {
+            (_remoteX, _remoteY) = seam.Enter(localX,localY);
+            _send(new InputPacket(InputEventType.DisplayOrigin,0,0,seam.Remote.X,seam.Remote.Y));
+            _send(new InputPacket(InputEventType.DisplaySize,0,0,seam.Remote.Width,seam.Remote.Height));
+        }
         // The existing protocol uses relative movement. Reset to Mac's left/top,
         // then place the pointer at the corresponding height on its left edge.
         _send(new InputPacket(InputEventType.Move, 0, 0, -100000, -100000));
         _send(new InputPacket(InputEventType.Move, 0, 0, _remoteX, _remoteY));
         _anchor = new Point { X = _localWidth / 2, Y = _localHeight / 2 };
+        if (_portal is { } anchorSeam)
+            _anchor = new Point { X = anchorSeam.Local.X + anchorSeam.Local.Width / 2, Y = anchorSeam.Local.Y + anchorSeam.Local.Height / 2 };
         while (_cursorHideCalls < 8)
         {
             _cursorHideCalls++;
@@ -196,6 +335,8 @@ public sealed class WindowsInputCapture : IDisposable
     {
         if (code < 0 || !IsActive) return CallNextHookEx(_keyboard, code, message, data);
         var evt = Marshal.PtrToStructure<KeyData>(data);
+        if ((evt.Flags & 0x10) != 0 && evt.ExtraInfo == RoamingInjectedMarker)
+            return CallNextHookEx(_keyboard, code, message, data);
         var kind = message.ToInt32();
         var down = kind is WmKeyDown or WmSysKeyDown;
         var up = kind is WmKeyUp or WmSysKeyUp;
@@ -212,6 +353,7 @@ public sealed class WindowsInputCapture : IDisposable
         // injected keyboard input. A physical Escape cancels the remote file transaction.
         if (_fileDrag && evt.VkCode == 0x1B && down && (evt.Flags & 0x10) == 0)
         {
+            _fileReleaseGate.Cancel();
             _fileDrag = false;
             // Finder treats mouse-up as accepting the promised file. Send Escape through the
             // ordered input channel first, so its native drag loop cancels before any release.
@@ -222,6 +364,14 @@ public sealed class WindowsInputCapture : IDisposable
             if (_heldButtons.Remove(0)) _send(new InputPacket(InputEventType.Button, 0, 0, 0, 0));
             _send(new InputPacket(InputEventType.FileDrag, 0, 0, 0, 0));
             FileDragCancelled?.Invoke();
+            return (IntPtr)1;
+        }
+        if (_windowDrag && evt.VkCode == 0x1B && down && (evt.Flags & 0x10) == 0)
+        {
+            _send(new InputPacket(InputEventType.Key, 0, 0x1B, 0, 0));
+            _send(new InputPacket(InputEventType.Key, 1, 0x1B, 0, 0));
+            EndWindowDrag();
+            WindowDragCancelled?.Invoke();
             return (IntPtr)1;
         }
 
@@ -250,9 +400,14 @@ public sealed class WindowsInputCapture : IDisposable
     {
         if (code < 0 || !IsActive) return CallNextHookEx(_mouse, code, message, data);
         var evt = Marshal.PtrToStructure<MouseData>(data);
+        if ((evt.Flags & 1) != 0 && evt.ExtraInfo == RoamingInjectedMarker)
+            return CallNextHookEx(_mouse, code, message, data);
         var kind = message.ToInt32();
         RefreshDisplayBounds();
-        if ((evt.Flags & 1) == 0)
+        // Track every external pointer event before suppression. GetAsyncKeyState can
+        // remain down after a low-level hook swallows the corresponding release.
+        // Our own roaming input was excluded by its marker above.
+        if (kind != WmMouseMove)
         {
             if (kind is WmLButtonDown or WmLButtonUp or WmRButtonDown or WmRButtonUp or WmMButtonDown or WmMButtonUp)
             {
@@ -269,12 +424,17 @@ public sealed class WindowsInputCapture : IDisposable
         if (_remote && !_isConnected()) LeaveRemote();
         if (!_remote)
         {
+            if (kind == WmLButtonDown) LocalLeftPressed?.Invoke(evt.Point.X, evt.Point.Y);
+            else if (kind == WmLButtonUp) LocalLeftReleased?.Invoke();
             if (kind == WmMouseMove)
             {
-                var atEdge = evt.Point.X >= _localWidth - 2;
+                var atEdge = _portal is { } seam ? seam.AtEdge(evt.Point.X, evt.Point.Y) : evt.Point.X >= _localWidth - 2;
+                var movingOutward = _portal is { } direction ? direction.Outward(evt.Point.X-_lastLocal.X,evt.Point.Y-_lastLocal.Y) : evt.Point.X > _lastLocal.X;
+                if (!atEdge) _edgeStarted = 0;
+                else if (_edgeStarted == 0 && (movingOutward || _edgeBlockedByHeldInput)) _edgeStarted = Environment.TickCount64;
                 var held = _physicalKeys.Count != 0 || _physicalButtons.Count != 0;
                 var entering = (evt.Flags & 1) == 0 && _physicalKeys.Count == 0 && _physicalButtons.Count == 0 &&
-                    atEdge && (evt.Point.X > _lastLocal.X || _edgeBlockedByHeldInput) && _isConnected();
+                    atEdge && _edgeStarted != 0 && Environment.TickCount64 - _edgeStarted >= (_portal?.DelayMs ?? 0) && _isConnected();
                 _edgeBlockedByHeldInput = atEdge && held;
                 _lastLocal = evt.Point;
                 if (entering) { EnterRemote(evt.Point.X, evt.Point.Y); return (IntPtr)1; }
@@ -284,10 +444,32 @@ public sealed class WindowsInputCapture : IDisposable
 
         if (kind == WmMouseMove)
         {
+            if (_fileDrag && _fileReleaseGate.WaitingForReady)
+            {
+                // Keep the intended drop position while the peer creates its native source.
+                SetCursorPos(_anchor.X, _anchor.Y);
+                return (IntPtr)1;
+            }
             var dx = evt.Point.X - _anchor.X;
             var dy = evt.Point.Y - _anchor.Y;
             if (dx == 0 && dy == 0) return (IntPtr)1;
-            if (dx < 0 && _remoteX + dx <= 0) { LeaveRemote(); return (IntPtr)1; }
+            if ((_portal is { } returnSeam ? returnSeam.Returns(_remoteX,_remoteY,dx,dy) : dx < 0 && _remoteX + dx <= 0) && !_windowDrag)
+            {
+                // Deliver the final edge location before releasing Mac input. A
+                // fast movement can otherwise skip its entire caption edge strip.
+                if (_heldButtons.Contains(0))
+                    _send(new InputPacket(InputEventType.Move, 0, 0,
+                        _portal is not null ? Math.Clamp(_remoteX + dx, 0, _remoteWidth - 1) - _remoteX : -_remoteX,
+                        Math.Clamp(_remoteY + dy, 0, _remoteHeight - 1) - _remoteY));
+                if (_portal is not null) {
+                    _remoteX = Math.Clamp(_remoteX + dx, 0, _remoteWidth - 1);
+                    _remoteY = Math.Clamp(_remoteY + dy, 0, _remoteHeight - 1);
+                }
+                LeaveRemote(); return (IntPtr)1;
+            }
+            // During continuous caption handoff, the proxy must observe the Mac left edge before
+            // its return-drag message ends KVM and resumes the source's native caption loop.
+            // Ordinary remote control still returns immediately, as before.
             _remoteX = Math.Clamp(_remoteX + dx, 0, _remoteWidth - 1);
             _remoteY = Math.Clamp(_remoteY + dy, 0, _remoteHeight - 1);
             _send(new InputPacket(InputEventType.Move, 0, 0, dx, dy));
@@ -298,12 +480,17 @@ public sealed class WindowsInputCapture : IDisposable
             var button = kind is WmLButtonDown or WmLButtonUp ? (byte)0
                 : kind is WmRButtonDown or WmRButtonUp ? (byte)1 : (byte)2;
             var down = kind is WmLButtonDown or WmRButtonDown or WmMButtonDown;
+            if (_fileDrag && button == 0 && !down)
+            {
+                if (_fileReleaseGate.Release()) SendFileDragRelease();
+                return (IntPtr)1;
+            }
             if (down) _heldButtons.Add(button); else _heldButtons.Remove(button);
             _send(new InputPacket(InputEventType.Button, button, 0, down ? 1 : 0, 0));
-            if (_fileDrag && button == 0 && !down && (evt.Flags & 1) == 0)
+            if (_windowDrag && button == 0 && !down)
             {
-                _fileDrag = false;
-                FileDragReleased?.Invoke();
+                _windowDrag = false;
+                WindowDragReleased?.Invoke();
             }
         }
         else if (kind == WmMouseWheel)

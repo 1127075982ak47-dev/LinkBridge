@@ -17,8 +17,6 @@ public partial class MainViewModel
     private CancellationTokenSource? _fileTransferCancellation;
     private string? _filePeerAddress;
     private Guid? _incomingFileId;
-    private bool _fileDragReleased;
-    private bool _nativeFileDragStarted;
     private Task? _outgoingFileTask;
 
     [ObservableProperty] private bool _hasFileTask;
@@ -31,14 +29,9 @@ public partial class MainViewModel
         if (_inputCapture is null || _fileDragEdge is not null) return;
         _fileDragEdge = new WindowsFileDragEdge(
             paths => Dispatcher.UIThread.Post(() => _outgoingFileTask = BeginFileHandoffAsync(paths)),
-            message => AppendLog("[文件] " + message));
+            message => AppendLog("[文件] " + message), ActiveScreenPortal is null ? ConfiguredBottomSeam : null, ActiveScreenPortal);
         _inputCapture.RemoteEntered += UpdateFileEdge;
         _inputCapture.RemoteExited += UpdateFileEdge;
-        _inputCapture.FileDragReleased += () => Dispatcher.UIThread.Post(() =>
-        {
-            _fileDragReleased = true;
-            if (!Volatile.Read(ref _nativeFileDragStarted)) _fileTransferCancellation?.Cancel();
-        });
         _inputCapture.FileDragCancelled += () => Dispatcher.UIThread.Post(() => _fileTransferCancellation?.Cancel());
         UpdateFileEdge();
     }
@@ -116,13 +109,11 @@ public partial class MainViewModel
         if (_inputCapture?.BeginFileDrag() != true)
         {
             HasFileTask = true;
-            FileTransferStatus = "请按住文件滑过右侧边缘，再到 Mac 松手";
+            FileTransferStatus = Settings.InputScreenEdge == "bottom" ? "请按住文件滑过右侧屏幕下边缘，再到 Mac 松手" : "请按住文件滑过右侧边缘，再到 Mac 松手";
             return;
         }
         HasFileTask = IsFileTransferBusy = true;
         var address = _filePeerAddress;
-        _fileDragReleased = false;
-        Volatile.Write(ref _nativeFileDragStarted, false);
         FileTransferPercent = 0;
         FileTransferStatus = "正在接力文件拖放…";
         UpdateFileEdge();
@@ -131,14 +122,13 @@ public partial class MainViewModel
         try
         {
             var manifest = await Task.Run(() => FileTransferSender.CreateManifest(paths), cancellation.Token);
-            if (_fileDragReleased) throw new IOException("请稍候文件图标出现，再在 Finder 中松手。");
             var progress = new ImmediateFileProgress(value =>
             {
-                // This phase follows the native willBeginAt acknowledgement, not just a socket connection.
-                if (value.Phase is "传输中" or "等待放入目标文件夹") Volatile.Write(ref _nativeFileDragStarted, true);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_shuttingDown || _fileTransferCancellation != cancellation) return;
+                    // The transfer phase follows AppKit willBeginAt, not merely a TCP connection.
+                    if (value.Phase is "传输中" or "等待放入目标文件夹") _inputCapture?.ConfirmFileDragReady();
                     FileTransferPercent = value.TotalBytes > 0 ? 100d * value.Bytes / value.TotalBytes : 0;
                     FileTransferStatus = $"{value.Phase} · {FormatFileBytes(value.Bytes)} / {FormatFileBytes(value.TotalBytes)}";
                 });
@@ -160,6 +150,7 @@ public partial class MainViewModel
         finally
         {
             _fileTransferCancellation = null;
+            _inputCapture?.CancelFileDrag();
             IsFileTransferBusy = false;
             UpdateFileEdge();
         }

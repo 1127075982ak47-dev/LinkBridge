@@ -5,7 +5,7 @@ using Avalonia.Threading;
 
 namespace LinkBridge.App.Services;
 
-/// <summary>Native Mac text/PNG clipboard. It never exports paths, HTML or startup history.</summary>
+/// <summary>Native Mac text/PNG/file clipboard. File URLs feed the streaming file sender; startup history is skipped.</summary>
 public sealed class MacSharedClipboard : IDisposable
 {
     internal const int TextLimit = 1024 * 1024;
@@ -91,7 +91,40 @@ public sealed class MacSharedClipboard : IDisposable
         var board = privateBoard != 0 ? privateBoard : Native.Board();
         // Finder copies can also advertise text aliases or a TIFF file icon.
         // File clipboard intent must be recognized before image/text fallbacks.
-        if (Native.HasType(board, "public.file-url") || Native.HasType(board, "NSFilenamesPboardType")) return null;
+        if (Native.HasType(board, "public.file-url") || Native.HasType(board, "NSFilenamesPboardType"))
+        {
+            var paths = new List<string>();
+            var items = Native.Send(board, Native.Selector("pasteboardItems"));
+            var count = (long)Native.Send(items, Native.Selector("count"));
+            using var fileType = new Native.Text("public.file-url");
+            if (count > 128) return null;
+            for (var index = 0; index < count; index++)
+            {
+                var item = Native.Send1(items, Native.Selector("objectAtIndex:"), index);
+                var value = Native.Send1(item, Native.Selector("stringForType:"), fileType.Value);
+                if (value == 0) continue;
+                var url = Native.Send1(Native.Class("NSURL"), Native.Selector("URLWithString:"), value);
+                if (url == 0 || Native.Send(url, Native.Selector("isFileURL")) == 0) continue;
+                var path = Native.Send(url, Native.Selector("path"));
+                var filePath = Marshal.PtrToStringUTF8(Native.Send(path, Native.Selector("UTF8String")));
+                if (filePath is not null) paths.Add(filePath);
+            }
+            if (paths.Count == 0)
+            {
+                using var legacyType = new Native.Text("NSFilenamesPboardType");
+                var names = Native.Send1(board, Native.Selector("propertyListForType:"), legacyType.Value);
+                if (names != 0 && !Native.SendBool1(names, Native.Selector("isKindOfClass:"), Native.Class("NSArray"))) return null;
+                var length = (long)Native.Send(names, Native.Selector("count"));
+                if (length > 128) return null;
+                for (var index = 0; index < length; index++)
+                {
+                    var value = Native.Send1(names, Native.Selector("objectAtIndex:"), index);
+                    var filePath = Marshal.PtrToStringUTF8(Native.Send(value, Native.Selector("UTF8String")));
+                    if (filePath is not null) paths.Add(filePath);
+                }
+            }
+            return paths.Count == 0 ? null : SharedClipboardFiles.Encode(paths);
+        }
         var png = Native.ReadData(board, "public.png", PngLimit);
         if (png is not null) return new("png", png);
         var tiff = Native.DataForType(board, "public.tiff");
@@ -121,6 +154,23 @@ public sealed class MacSharedClipboard : IDisposable
 
     internal static void ApplyNative(SharedClipboardContent content, nint privateBoard = 0)
     {
+        if (content.Kind == SharedClipboardFiles.Kind)
+        {
+            var paths = SharedClipboardFiles.Decode(content);
+            using var filesPool = new Native.Pool();
+            var filesBoard = privateBoard != 0 ? privateBoard : Native.Board();
+            var urls = Native.Send(Native.Class("NSMutableArray"), Native.Selector("array"));
+            foreach (var path in paths)
+            {
+                using var name = new Native.Text(path);
+                var url = Native.Send1(Native.Class("NSURL"), Native.Selector("fileURLWithPath:"), name.Value);
+                Native.Send1(urls, Native.Selector("addObject:"), url);
+            }
+            Native.Send(filesBoard, Native.Selector("clearContents"));
+            if (!Native.SendBool1(filesBoard, Native.Selector("writeObjects:"), urls))
+                throw new IOException("Finder 文件剪贴板写入失败。");
+            return;
+        }
         if (content.Kind is not ("text" or "png") || content.Data.Length > (content.Kind == "text" ? TextLimit : PngLimit))
             throw new ArgumentException("Unsupported or oversized clipboard content.", nameof(content));
         using var pool = new Native.Pool();

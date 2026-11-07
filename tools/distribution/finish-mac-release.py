@@ -111,7 +111,7 @@ def main():
                           'sha256': hashlib.sha256(link.encode('utf-8')).hexdigest()})
         elif path.is_dir(): continue
         elif path.is_file(): files.append({'path': relative, 'bytes': path.stat().st_size, 'sha256': digest(path)})
-    manifest.write_text(json.dumps({'schema': 1, 'productVersion': '0.0.1', 'runtimeIdentifier': 'osx-arm64',
+    manifest.write_text(json.dumps({'schema': 1, 'productVersion': json.loads((root/'tools/distribution/release.json').read_text())['version'], 'runtimeIdentifier': 'osx-arm64',
         'runtimeFramework': 'Microsoft.NETCore.App', 'runtimeVersion': version,
         'createdAtUtc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'files': files},
         ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

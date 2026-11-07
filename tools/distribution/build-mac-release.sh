@@ -3,6 +3,8 @@
 set -eu
 root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd -P)"
 cd "$root"
+version="$(python3 -c 'import json;print(json.load(open("tools/distribution/release.json"))["version"])')"
+label="$(python3 -c 'import json;print(json.load(open("tools/distribution/release.json"))["label"])')"
 [ "$(uname -s)" = "Darwin" ] || { printf '%s\n' 'Build this package on macOS.' >&2; exit 1; }
 [ "$(uname -m)" = "arm64" ] || { printf '%s\n' 'This release targets Apple Silicon (osx-arm64).' >&2; exit 1; }
 for tool in dotnet swift swiftc iconutil codesign python3 ditto; do
@@ -18,7 +20,7 @@ bundle="$output/LinkBridge.app"
 dotnet publish src/LinkBridge.App/LinkBridge.App.csproj -c Release -r osx-arm64 --self-contained true \
     -p:UseAppHost=true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false \
     -p:PathMap="$root=/src/linkbridge" -p:IncludeSourceRevisionInInformationalVersion=false \
-    -p:Version=0.0.1 -p:AssemblyVersion=0.0.1.0 -p:FileVersion=0.0.1.0 -o "$publish"
+    -p:Version="$version" -p:AssemblyVersion="$version.0" -p:FileVersion="$version.0" -p:InformationalVersion="$label" -o "$publish"
 mkdir -p "$prepared/Contents/MacOS" "$prepared/Contents/Resources"
 cp -R "$publish/." "$prepared/Contents/MacOS/"
 swift tools/mac-app/render-app-icon.swift src/LinkBridge.App/Assets/linkbridge.ico "$staging/LinkBridge.iconset"
@@ -30,11 +32,11 @@ cp tools/mac-app/Info.plist "$prepared/Contents/Info.plist"
 chmod +x "$prepared/Contents/MacOS/LinkBridge.App" "$prepared/Contents/MacOS/LinkBridge.FileDragHelper"
 # Ad-hoc signing uses no certificate, keychain, personal identity or leaf pin.
 # Inspect native binary magic rather than relying on filenames/extensions.
-python3 - "$prepared" <<'PY'
+python3 - "$prepared" "$version" <<'PY'
 import pathlib, plistlib, subprocess, sys
 app = pathlib.Path(sys.argv[1])
 info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
-if info.get('CFBundleIdentifier') != 'com.linkbridge.desktop' or info.get('CFBundleShortVersionString') != '0.0.1':
+if info.get('CFBundleIdentifier') != 'com.linkbridge.desktop' or info.get('CFBundleShortVersionString') != sys.argv[2]:
     raise SystemExit('Public bundle identifier/version mismatch.')
 # Align the public runtime requirement with currently supported .NET 10 macOS.
 # The private/local source Info.plist and installed application are not modified.
@@ -71,6 +73,7 @@ if ! mv "$prepared" "$bundle"; then
 fi
 cp tools/distribution/Install.command "$output/Install.command"
 cp tools/distribution/README.md "$output/README.md"
+cp tools/distribution/release.json "$output/release.json"
 chmod +x "$output/Install.command"
 python3 tools/distribution/finish-mac-release.py
 printf '%s\n' 'Prepared artifacts/public-release/LinkBridge.app and Install.command.'

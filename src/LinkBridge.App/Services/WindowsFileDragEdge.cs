@@ -1,7 +1,9 @@
+using LinkBridge.Core.DisplayLayout;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
+using LinkBridge.Input;
 
 namespace LinkBridge.App.Services;
 
@@ -32,13 +34,24 @@ public sealed class WindowsFileDragEdge : IDisposable
     private long _cancelStarted, _leaveObserved;
     private string? _className;
     private int _screenWidth, _screenHeight;
+    private readonly BottomScreenSeam? _bottomSeam;
+    private readonly ScreenPortal? _portal;
+    private (int X, int Y, int W, int H) EdgeBounds => _portal is { } p ? p.Edge switch {
+        "bottom" => (p.Start,p.Local.Y+p.Local.Height-StripPixels,p.End-p.Start,StripPixels),
+        "top" => (p.Start,p.Local.Y,p.End-p.Start,StripPixels),
+        "left" => (p.Local.X,p.Start,StripPixels,p.End-p.Start),
+        _ => (p.Local.X+p.Local.Width-StripPixels,p.Start,StripPixels,p.End-p.Start) }
+        : _bottomSeam is { } seam
+        ? (seam.Start, seam.Y + seam.Height - StripPixels, seam.End - seam.Start, StripPixels)
+        : (_screenWidth - StripPixels, 0, StripPixels, _screenHeight);
     private bool _edgeHitLogged;
 
-    public WindowsFileDragEdge(Action<IReadOnlyList<string>> handoff, Action<string>? log = null)
+    public WindowsFileDragEdge(Action<IReadOnlyList<string>> handoff, Action<string>? log = null, BottomScreenSeam? bottomSeam = null, ScreenPortal? portal = null)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         _handoff = handoff ?? throw new ArgumentNullException(nameof(handoff));
         _log = log;
+        _bottomSeam = bottomSeam; _portal = portal;
         _windowProc = ProcessMessage;
         _dropTarget = new DropTarget(this);
         _thread = new Thread(Run) { IsBackground = true, Name = "LinkBridge file OLE edge" };
@@ -78,9 +91,10 @@ public sealed class WindowsFileDragEdge : IDisposable
             };
             if (RegisterClassExW(ref windowClass) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
             _screenWidth = GetSystemMetrics(0); _screenHeight = GetSystemMetrics(1);
+            var edge = EdgeBounds;
             _window = CreateWindowExW(ExToolWindow | ExLayered | ExNoActivate, _className,
-                "LinkBridge File Edge", WsPopup, _screenWidth - StripPixels, 0, StripPixels,
-                _screenHeight, IntPtr.Zero, IntPtr.Zero, windowClass.Instance, IntPtr.Zero);
+                "LinkBridge File Edge", WsPopup, edge.X, edge.Y, edge.W,
+                edge.H, IntPtr.Zero, IntPtr.Zero, windowClass.Instance, IntPtr.Zero);
             if (_window == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             // Alpha zero is excluded from native OLE hit testing. Alpha one is visually imperceptible.
             if (!SetLayeredWindowAttributes(_window, 0, 1, 2)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -129,12 +143,16 @@ public sealed class WindowsFileDragEdge : IDisposable
         if (desiredVisible && (!_visible || width != _screenWidth || height != _screenHeight))
         {
             _screenWidth = width; _screenHeight = height;
-            SetWindowPos(_window, (IntPtr)(-1), width - StripPixels, 0, StripPixels, height,
+            var edge = EdgeBounds;
+            SetWindowPos(_window, (IntPtr)(-1), edge.X, edge.Y, edge.W, edge.H,
                 SwpNoActivate | SwpShowWindow | SwpNoOwnerZOrder);
             _visible = true;
         }
         else if (!desiredVisible && _visible) { ShowWindow(_window, 0); _visible = false; }
-        if (_visible && !_edgeHitLogged && GetCursorPos(out var pointer) && pointer.X >= _screenWidth - StripPixels)
+        if (_visible && !_edgeHitLogged && GetCursorPos(out var pointer) &&
+            (_portal is { } portal ? pointer.X >= EdgeBounds.X && pointer.X < EdgeBounds.X + EdgeBounds.W && pointer.Y >= EdgeBounds.Y && pointer.Y < EdgeBounds.Y + EdgeBounds.H : _bottomSeam is { } seam ? pointer.X >= seam.Start && pointer.X < seam.End &&
+                pointer.Y >= seam.Y + seam.Height - StripPixels && pointer.Y < seam.Y + seam.Height
+                : pointer.X >= _screenWidth - StripPixels))
         {
             _edgeHitLogged = true;
             _log?.Invoke($"文件边缘命中检测 · ({pointer.X},{pointer.Y}) · 原生窗口命中={WindowFromPoint(pointer) == _window}");

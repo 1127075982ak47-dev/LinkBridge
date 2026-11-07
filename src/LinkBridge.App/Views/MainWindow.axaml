@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:LinkBridge.App.ViewModels" xmlns:discovery="using:LinkBridge.Core.Discovery" xmlns:controls="using:LinkBridge.App.Controls" xmlns:art="using:LinkBridge.App.Assets"
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:LinkBridge.App.ViewModels" xmlns:discovery="using:LinkBridge.Core.Discovery" xmlns:controls="using:LinkBridge.App.Controls" xmlns:art="using:LinkBridge.App.Assets"
     x:Class="LinkBridge.App.Views.MainWindow" x:DataType="vm:MainViewModel" Icon="/Assets/linkbridge.ico"
     Width="640" Height="640" MinWidth="480" MinHeight="480" WindowStartupLocation="CenterScreen"
     WindowDecorations="None" TransparencyLevelHint="Transparent" Background="Transparent" CanResize="True"
@@ -53,15 +53,15 @@
             <Button x:Name="MinimizeButton" Classes="chrome" Canvas.Left="819" Canvas.Top="100" ToolTip.Tip="最小化"><TextBlock Text="−" FontSize="25" TextAlignment="Center" VerticalAlignment="Center" /></Button>
             <Button x:Name="CloseButton" Classes="chrome" Canvas.Left="895" Canvas.Top="141" ToolTip.Tip="关闭联桥"><TextBlock Text="×" FontSize="28" TextAlignment="Center" VerticalAlignment="Center" /></Button>
             <Button Classes="chrome" Canvas.Left="956" Canvas.Top="190" Click="ShowSettings" ToolTip.Tip="设置"><TextBlock Text="⚙" FontSize="25" TextAlignment="Center" VerticalAlignment="Center" /></Button>
-            <TextBlock Canvas.Left="566" Canvas.Top="350" Width="125" Text="0.0.1" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
+            <TextBlock Canvas.Left="566" Canvas.Top="350" Width="125" Text="{Binding ProductVersion}" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
 
-            <Image Canvas.Left="311" Canvas.Top="440" Width="618" Height="246" Source="{x:Static art:ConstellationAssets.Computers}" Stretch="Uniform" IsHitTestVisible="False" Opacity="{Binding PeerIllustrationOpacity}"><Image.Clip><GeometryGroup><RectangleGeometry Rect="0,0,245,246" /><RectangleGeometry Rect="367,0,251,246" /></GeometryGroup></Image.Clip></Image>
+            <controls:ComputerPairIllustration Canvas.Left="311" Canvas.Top="440" Width="618" Height="246" IsHitTestVisible="False" Opacity="{Binding PeerIllustrationOpacity}" />
             <controls:PeerConnectionFlow Canvas.Left="311" Canvas.Top="440" Width="618" Height="246" IsConnected="{Binding IsPeerConnected}" ReduceMotion="{Binding IsMotionReduced}" IsHitTestVisible="False" />
-            <TextBlock Canvas.Left="350" Canvas.Top="651" Width="230" Text="Windows" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
-            <TextBlock Canvas.Left="686" Canvas.Top="651" Width="220" Text="Mac" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
+            <TextBlock Canvas.Left="350" Canvas.Top="651" Width="230" Text="{Binding LocalComputerLabel}" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
+            <TextBlock Canvas.Left="686" Canvas.Top="651" Width="220" Text="{Binding RemoteComputerLabel}" FontSize="24" FontWeight="SemiBold" TextAlignment="Center" />
             <Image Canvas.Left="422" Canvas.Top="650" Width="390" Height="130" Source="{x:Static art:ConstellationAssets.Keyboard}" Stretch="Uniform" IsHitTestVisible="False" />
             <TextBlock Canvas.Left="605" Canvas.Top="748" Text="∞" FontSize="45" Foreground="#99BDFF" />
-            <TextBlock Canvas.Left="365" Canvas.Top="807" Width="510" Text="{Binding InputStatusText}" FontSize="18" Foreground="#4D648A" TextAlignment="Center" TextWrapping="Wrap" />
+            <TextBlock Canvas.Left="345" Canvas.Top="807" Width="550" MaxHeight="40" Text="{Binding ConnectionSummaryText}" FontSize="18" Foreground="#4D648A" TextAlignment="Center" TextWrapping="Wrap" />
 
             <Button Classes="pod" Canvas.Left="219" Canvas.Top="171" Width="240" Height="240" IsVisible="{Binding HasPrimaryCamera}" Command="{Binding ToggleDeviceCommand}" CommandParameter="{Binding PrimaryCamera}" ToolTip.Tip="{Binding PrimaryCamera.FullDescription}">
                 <Border CornerRadius="120">
@@ -102,8 +102,8 @@
             <Button Classes="pod" Canvas.Left="909" Canvas.Top="731" Width="169" Height="169" IsVisible="{Binding HasSecondExtraSpeaker}" Command="{Binding SelectPlaybackCommand}" CommandParameter="{Binding SecondExtraSpeaker}" Click="ToggleAudio" ToolTip.Tip="{Binding SecondExtraSpeaker.FullDescription}"><Border CornerRadius="85"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><Path Data="{Binding SecondExtraSpeaker.IconGeometry}" Width="61" Height="61" Stretch="Uniform" Stroke="#53698F" StrokeThickness="1.8" Fill="Transparent" VerticalAlignment="Top" Margin="0,36,0,0" /><TextBlock Text="{Binding SecondExtraSpeaker.OutputKindLabel}" FontSize="17" FontWeight="SemiBold" Foreground="#415C85" TextAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,29" /></Panel></Border></Button>
 
             <Canvas Canvas.Left="271" Canvas.Top="850" Width="717" Height="278">
-                <Path Data="M2 120 C2 56 164 1 359 1 C554 1 715 56 715 120 C715 209 557 276 359 276 C160 276 2 209 2 120 Z" Fill="#B8DBE7F8" Stroke="#EAFFFFFF" StrokeThickness="2" IsHitTestVisible="False" />
-                <Path Data="M37 119 C70 72 197 29 359 29 C522 29 648 73 680 119" Stroke="#60FFFFFF" StrokeThickness="1" Fill="Transparent" IsHitTestVisible="False" />
+                <Path Width="717" Height="278" Stretch="None" Data="M3 120 C3 57 164 3 359 3 C554 3 714 57 714 120 C714 208 557 275 359 275 C160 275 3 208 3 120 Z" Fill="#B8DBE7F8" Stroke="#EAFFFFFF" StrokeThickness="2" IsHitTestVisible="False" />
+                <Path Width="717" Height="278" Stretch="None" Data="M37 119 C70 72 197 29 359 29 C522 29 648 73 680 119" Stroke="#60FFFFFF" StrokeThickness="1" Fill="Transparent" IsHitTestVisible="False" />
                 <Canvas>
                     <TextBlock Canvas.Left="257" Canvas.Top="6" Width="205" Text="音频输出" FontSize="19" Foreground="#4F6488" TextAlignment="Center" />
                     <Grid Canvas.Left="199" Canvas.Top="32" Width="316" ColumnDefinitions="30,*,30">
@@ -117,8 +117,8 @@
                     <Slider Canvas.Left="208" Canvas.Top="77" Width="270" Minimum="0" Maximum="100" IsEnabled="{Binding IsVolumeAvailable}" Value="{Binding VolumePercent, Mode=TwoWay}" Foreground="#3F8AFF" />
                     <TextBlock Canvas.Left="507" Canvas.Top="81" Text="{Binding VolumeLabel}" FontSize="21" Foreground="#4F6488" />
                     <Button x:Name="LayoutButton" Classes="orbitAction" Canvas.Left="103" Canvas.Top="123" Width="120" Height="107" ToolTip.Tip="屏幕布局"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding LayoutIcon}" Width="34" Height="30" Stretch="Uniform" Stroke="#435D86" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="屏幕布局" FontSize="17" TextAlignment="Center" /></StackPanel></Panel></Button>
-                    <Button x:Name="InputStatusButton" Classes="orbitAction" Canvas.Left="289" Canvas.Top="149" Width="126" Height="112" ToolTip.Tip="{Binding InputStatusText}"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding IsControlling}" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ConnectIcon}" Width="34" Height="30" Stretch="Uniform" Stroke="#3B70EF" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="跨屏连接" FontSize="19" FontWeight="SemiBold" TextAlignment="Center" /></StackPanel></Panel></Button>
-                    <Button x:Name="DevicesButton" Classes="orbitAction" Canvas.Left="485" Canvas.Top="121" Width="121" Height="107" ToolTip.Tip="跨屏取材 · 文字与截图直接粘贴"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ClipboardIcon}" Width="30" Height="32" Stretch="Uniform" Stroke="#435D86" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="跨屏取材" FontSize="17" TextAlignment="Center" /></StackPanel></Panel></Button>
+                    <Button x:Name="InputStatusButton" Classes="orbitAction" Canvas.Left="289" Canvas.Top="149" Width="126" Height="112" Command="{Binding ConnectPeerCommand}" AutomationProperties.Name="{Binding ConnectPeerButtonText}" ToolTip.Tip="重新发现并连接已配对的电脑"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsActive="{Binding IsPeerConnected}" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ConnectIcon}" Width="34" Height="30" Stretch="Uniform" Stroke="#3B70EF" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="{Binding ConnectPeerButtonText}" FontSize="19" FontWeight="SemiBold" TextAlignment="Center" /></StackPanel></Panel></Button>
+                    <Button x:Name="DevicesButton" Classes="orbitAction" Canvas.Left="485" Canvas.Top="121" Width="121" Height="107" ToolTip.Tip="跨屏取材 · 文件、文字与截图直接粘贴"><Panel><controls:CircularGlassSurface StyleKind="Pearl" IsHitTestVisible="False" /><StackPanel Spacing="8" VerticalAlignment="Center"><Path Data="{Binding ClipboardIcon}" Width="30" Height="32" Stretch="Uniform" Stroke="#435D86" StrokeThickness="1.8" Fill="Transparent" HorizontalAlignment="Center" /><TextBlock Text="跨屏取材" FontSize="17" TextAlignment="Center" /></StackPanel></Panel></Button>
                 </Canvas>
             </Canvas>
             <StackPanel Canvas.Left="390" Canvas.Top="1138" Width="474" Spacing="2">
@@ -148,8 +148,8 @@
                     <Button Classes="primary" Content="截取 Mac 区域" Command="{Binding CaptureMacMaterialCommand}" IsEnabled="{Binding CanCaptureMac}" HorizontalAlignment="Center" />
                     <TextBlock Text="划选后，回到 Windows 直接粘贴。" FontSize="17" TextAlignment="Center" Foreground="#536685" TextWrapping="Wrap" />
                     <Rectangle Classes="sep" />
-                    <TextBlock Text="文字和图片：在任意一台复制，到另一台粘贴。" FontSize="17" Foreground="#536685" TextWrapping="Wrap" />
-                    <TextBlock Text="图片保留原尺寸 · PNG 无损传送" FontSize="16" Foreground="#7588A7" TextWrapping="Wrap" />
+                    <TextBlock Text="文件、文件夹、文字和图片：在任意一台复制，到另一台粘贴。" FontSize="17" Foreground="#536685" TextWrapping="Wrap" />
+                    <TextBlock Text="也可拖入本窗口发送文件 · 待送达后在另一台粘贴" FontSize="16" Foreground="#7588A7" TextWrapping="Wrap" />
                 </StackPanel>
             </Grid>
         </Panel></Border>
@@ -162,7 +162,8 @@
                     <Grid ColumnDefinitions="*,Auto"><TextBlock Text="登录后自动打开" VerticalAlignment="Center" /><ToggleSwitch Grid.Column="1" IsChecked="{Binding Settings.LaunchAtStartup, Mode=TwoWay}" /></Grid>
                     <CheckBox x:Name="ReduceMotionToggle" Content="减少动画" IsChecked="{Binding IsMotionReduced, Mode=TwoWay}" FontSize="17" />
                     <WrapPanel><Button Classes="secondary" Content="↔ 圆盘大小" Click="ShowWorkspaceSize" Margin="0,0,8,8" /><Button Classes="secondary" Content="设备" Click="ShowDevices" Margin="0,0,8,8" /><Button Classes="secondary" Content="连接帮助" Click="ShowDeviceSetup" Margin="0,0,8,8" /></WrapPanel>
-                    <TextBlock Text="联桥 LinkBridge · 0.0.1" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
+                    <TextBlock Text="联桥 LinkBridge · 0.0.4-beta.1 公测版" FontSize="16" Foreground="#7588A7" TextAlignment="Center" />
+                    <TextBlock Text="本轮公测：双机键鼠、屏幕布局、剪贴板与文件。音视频及高级多机功能不在公测范围。" FontSize="14" Foreground="#7588A7" TextWrapping="Wrap" TextAlignment="Center" />
                     <TextBlock IsVisible="{Binding HasSettingsSaveError}" Text="{Binding SettingsSaveError}" Classes="discError" />
                     <TextBlock IsVisible="{Binding HasPersistentLogError}" Text="{Binding PersistentLogError}" Classes="discError" />
                     <Expander Header="更多选项" HorizontalAlignment="Stretch"><StackPanel Spacing="14" Margin="0,12,0,0">
@@ -236,7 +237,7 @@
                 <StackPanel Grid.Row="1" Spacing="18" VerticalAlignment="Center"><TextBlock x:Name="WorkspaceSizeLabel" Text="640 × 640" FontSize="17" TextAlignment="Center" /><Slider x:Name="WorkspaceSizeSlider" Minimum="480" Maximum="1200" Value="640" SmallChange="16" LargeChange="64" TickFrequency="16" ToolTip.Tip="调整圆盘大小" /><Grid ColumnDefinitions="*,*,*"><Button Content="−" Click="DecreaseWorkspace" Margin="0,0,6,0" ToolTip.Tip="缩小" /><Button Grid.Column="1" Content="640" Click="ResetWorkspace" Margin="0,0,6,0" ToolTip.Tip="恢复默认" /><Button Grid.Column="2" Content="+" Click="IncreaseWorkspace" ToolTip.Tip="放大" /></Grid><TextBlock Text="拖右侧手柄也可调整" FontSize="16" Foreground="#536685" TextAlignment="Center" TextWrapping="Wrap" /></StackPanel>
             </Grid>
         </Panel></Border>
-        <Button x:Name="ResizeGrip" Width="38" Height="48" Content="↔" FontSize="22" Background="#F0F7FF" Foreground="#386FB7" BorderBrush="#C4D8EE" BorderThickness="1" CornerRadius="19" ToolTip.Tip="拖动调整圆盘 · 回车或设置中调整尺寸" Click="ShowWorkspaceSize" Cursor="SizeWestEast" />
+        <Button x:Name="ResizeGrip" Width="36" Height="36" Background="#ECF5FF" Foreground="#386FB7" BorderBrush="#AFCBE9" BorderThickness="1" CornerRadius="18" Padding="0" ToolTip.Tip="拖动缩放圆盘 · 回车打开尺寸" Click="ShowWorkspaceSize" Cursor="SizeWestEast"><Path Width="18" Height="18" Stretch="Uniform" Data="M3 8 V3 H8 M3 3 L9 9 M15 10 V15 H10 M15 15 L9 9" Stroke="#386FB7" StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent" IsHitTestVisible="False" /></Button>
     </Canvas>
     </Grid>
 </Window>

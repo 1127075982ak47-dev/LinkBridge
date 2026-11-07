@@ -8,7 +8,7 @@ if (args.Contains("--audio-receiver-probe"))
 {
     var settings = SettingsStore.Load();
     await using var receiver = new SharedAudioReceiver(settings.InputPairingSecret,
-        ip => ip == settings.AllowedControllerAddress, () => settings.PlaybackDeviceId);
+        ip => ip == "192.168.1.6", () => settings.PlaybackDeviceId);
     receiver.LogEmitted += Console.WriteLine;
     receiver.Start();
     await Task.Delay(TimeSpan.FromSeconds(12));
@@ -54,7 +54,7 @@ if (args.Contains("--recv"))
 }
 
 // --disk：只做磁盘接口判定验证
-if (args.Contains("--disk") && OperatingSystem.IsWindows())
+if (args.Contains("--disk"))
 {
     Console.WriteLine("盘符 -> 分区 -> 物理盘 / 接口类型");
     Console.WriteLine();

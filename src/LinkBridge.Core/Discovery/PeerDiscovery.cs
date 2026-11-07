@@ -29,7 +29,7 @@ public sealed record PeerInfo(
 }
 
 /// <summary>UDP 广播自动发现：每台装了 LinkBridge 的机器都会广播自己，彼此无需填 IP。</summary>
-public sealed class PeerDiscovery : IAsyncDisposable
+public sealed partial class PeerDiscovery : IAsyncDisposable
 {
     public const int DiscoveryPort = 45678;
     public const int CameraControlProtocolVersion = 2;
@@ -88,6 +88,8 @@ public sealed class PeerDiscovery : IAsyncDisposable
     }
     private readonly CancellationTokenSource _cts = new();
     private readonly Dictionary<string, PeerInfo> _peers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DiscoveryDatagrams _discoveryDatagrams = new();
+    private int _lastDiscoveryPacketCount;
     private readonly object _gate = new();
     private readonly Dictionary<string, AcceptedMediaRequest> _acceptedMediaNonces = [];
     private sealed record AcceptedMediaRequest(DateTimeOffset Accepted, string Timestamp, long Epoch, bool Ready);
@@ -180,9 +182,19 @@ public sealed class PeerDiscovery : IAsyncDisposable
     private void HandlePacket(byte[] buffer, IPEndPoint remote)
     {
         if (buffer.Length > 24576) return;
+        if (_discoveryDatagrams.Accept(buffer, remote.Address.ToString(), out var completed))
+        {
+            if (completed is not null) HandlePacket(completed, remote);
+            return;
+        }
         try
         {
             var text = Encoding.UTF8.GetString(buffer);
+            if (text.StartsWith(ConnectionRequest, StringComparison.Ordinal))
+            {
+                HandleConnectionRequest(text, remote);
+                return;
+            }
             if (text.StartsWith(LegacyCameraStart, StringComparison.Ordinal) || text.StartsWith(LegacyCameraStop, StringComparison.Ordinal))
             {
                 RejectLegacyCameraRequest(text, remote);
@@ -950,18 +962,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            var bytes = Encoding.UTF8.GetBytes(Magic + JsonSerializer.Serialize(new PeerPayload
-            {
-                Instance = InstanceId,
-                Name = DisplayName,
-                Platform = PlatformInfo.DisplayName,
-                MediaPort = MediaPort,
-                AudioOutputs = FilterDevices(AudioOutputs, MediaDeviceKind.Speaker, 32),
-                Cameras = FilterDevices(Cameras, MediaDeviceKind.Camera, 16),
-                Microphones = FilterDevices(Microphones, MediaDeviceKind.Microphone, 16),
-                HasSharedMicrophoneInput = HasSharedMicrophoneInput,
-                CameraControlProtocolVersion = CameraControlProtocolVersion,
-            }));
+            var packets = CreateAnnouncementPackets();
             PeersChanged?.Invoke(Snapshot());
             // 关键：不能只发 255.255.255.255。
             // 装了 Tailscale / Clash(TUN) / WSL / Hyper-V 的机器上，
@@ -974,7 +975,8 @@ public sealed class PeerDiscovery : IAsyncDisposable
                     using var sender = new UdpClient();
                     sender.EnableBroadcast = true;
                     sender.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
-                    await sender.SendAsync(bytes, target, ct).ConfigureAwait(false);
+                    foreach (var packet in packets)
+                        await sender.SendAsync(packet, target, ct).ConfigureAwait(false);
                 }
                 catch (SocketException)
                 {

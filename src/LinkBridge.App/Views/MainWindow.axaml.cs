@@ -12,6 +12,7 @@ using LinkBridge.App.Services;
 using LinkBridge.Input;
 using LinkBridge.App.Controls;
 using Avalonia.Threading;
+using Avalonia.Platform.Storage;
 
 namespace LinkBridge.App.Views;
 
@@ -22,7 +23,10 @@ public partial class MainWindow : Window
     private bool _adjustingSize, _geometryQueued, _sliderResizing, _resizePreview;
     private double _previewBaseSide, _previewSide;
     private readonly ScaleTransform _previewTransform = new(1, 1);
-    private PixelSize? _lastRoundSize;
+    private PixelRect? _lastRoundRegion;
+    private bool _fixedWindowsHost;
+    private double _workspaceSide = 640;
+    private double WorkspaceSide => _fixedWindowsHost ? _workspaceSide : Width;
     private readonly DispatcherTimer _resizeTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private double? _pendingSide;
     private Point? _resizeCenter;
@@ -38,9 +42,23 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, (_, e) =>
+        {
+            e.DragEffects = DataContext is MainViewModel { CanSendFiles: true } && e.DataTransfer.TryGetFiles()?.Any() == true
+                ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        });
+        AddHandler(DragDrop.DropEvent, (_, e) =>
+        {
+            var paths = e.DataTransfer.TryGetFiles()?.Select(file => file.TryGetLocalPath())
+                .Where(path => path is not null).Cast<string>().ToArray();
+            if (paths is { Length: > 0 } && DataContext is MainViewModel model) model.SendFilesToPeer(paths);
+            e.Handled = true;
+        });
         Opened += OnOpened;
         Closing += OnClosing;
-        Closed += (_, _) => { _macAccessTimer?.Stop(); _resizeTimer.Stop(); };
+        Closed += async (_, _) => { _macAccessTimer?.Stop(); _resizeTimer.Stop(); _screenLayoutTimer.Stop(); _screenLayoutEditor?.Close(); if(_screenLayoutServer is not null)await _screenLayoutServer.DisposeAsync(); };
         _resizeTimer.Tick += (_, _) => ApplyPendingResize();
         PropertyChanged += (_, change) =>
         {
@@ -67,7 +85,6 @@ public partial class MainWindow : Window
             _resizeCenter = GetWorkspaceCenter();
             _sliderResizing = true;
             BeginResizePreview();
-            StopSceneMotion();
         }, RoutingStrategies.Tunnel);
         WorkspaceSizeSlider.AddHandler(PointerReleasedEvent, (_, _) =>
         {
@@ -96,8 +113,7 @@ public partial class MainWindow : Window
         MinimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
         CloseButton.Click += (_, _) => Close();
         DevicesButton.Click += (_, _) => ToggleClipboard();
-        LayoutButton.Click += (_, _) => ToggleLayout();
-        InputStatusButton.Click += (_, _) => ToggleLayout();
+        LayoutButton.Click += (_, _) => ShowScreenLayoutEditor();
         ReduceMotionToggle.PropertyChanged += (_, change) =>
         {
             if (change.Property == Avalonia.Controls.Primitives.ToggleButton.IsCheckedProperty)
@@ -112,8 +128,9 @@ public partial class MainWindow : Window
             if (e.Key == Key.Escape) { ClosePanels(); e.Handled = true; }
             else if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
             {
-                if (e.Key is Key.OemPlus or Key.Add) { SetWorkspaceSize((_resizePreview ? _previewSide : Width) + 32); e.Handled = true; }
-                else if (e.Key is Key.OemMinus or Key.Subtract) { SetWorkspaceSize((_resizePreview ? _previewSide : Width) - 32); e.Handled = true; }
+                if(e.Key==Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Shift)){ShowScreenLayoutEditor();e.Handled=true;}
+                else if (e.Key is Key.OemPlus or Key.Add) { SetWorkspaceSize((_resizePreview ? _previewSide : WorkspaceSide) + 32); e.Handled = true; }
+                else if (e.Key is Key.OemMinus or Key.Subtract) { SetWorkspaceSize((_resizePreview ? _previewSide : WorkspaceSide) - 32); e.Handled = true; }
                 else if (e.Key == Key.D0) { SetWorkspaceSize(640); e.Handled = true; }
             }
         };
@@ -122,9 +139,12 @@ public partial class MainWindow : Window
     private async void OnOpened(object? sender, EventArgs e)
     {
         UpdateWorkArea();
+        InitializeFixedWindowsHost();
         UpdateRoundWindow();
         UpdateOverlayLayout();
         if (DataContext is not MainViewModel vm) return;
+        if (vm.Workspace.Enabled || Environment.GetCommandLineArgs().Contains("--workspace-ui"))
+            Dispatcher.UIThread.Post(ShowWorkspaceEditor);
         UpdatePreviewVisibility();
         vm.PropertyChanged += (_, change) =>
         {
@@ -151,6 +171,7 @@ public partial class MainWindow : Window
         catch (Exception ex) { vm.ReportWindowStartupError(ex); }
         try
         {
+            StartScreenLayoutService(vm);
             await vm.InitializeAsync();
             UpdatePreviewVisibility();
             if (IsActive) StartSceneMotion();
@@ -216,14 +237,16 @@ public partial class MainWindow : Window
     {
         if (!OperatingSystem.IsWindows() || TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == IntPtr.Zero) return;
         if (!GetClientRect(hwnd, out var area)) return;
-        var size = new PixelSize(area.Right, area.Bottom);
-        if (_lastRoundSize == size) return;
-        var diameter = Math.Min(area.Right, area.Bottom);
+        var diameter = _fixedWindowsHost
+            ? Math.Min(Math.Min(area.Right, area.Bottom), (int)Math.Round((_resizePreview ? _previewSide : _workspaceSide) * RenderScaling))
+            : Math.Min(area.Right, area.Bottom);
         var left = (area.Right - diameter) / 2; var top = (area.Bottom - diameter) / 2;
+        var regionBounds = new PixelRect(left, top, diameter, diameter);
+        if (_lastRoundRegion == regionBounds) return;
         var region = CreateEllipticRgn(left, top, left + diameter, top + diameter);
         if (region == IntPtr.Zero) return;
         if (SetWindowRgn(hwnd, region, true) == 0) DeleteObject(region);
-        else _lastRoundSize = size;
+        else _lastRoundRegion = regionBounds;
     }
 
     private void UpdateWorkArea()
@@ -238,10 +261,17 @@ public partial class MainWindow : Window
             var scale = screen.Scaling;
             _lastWorkAreaScaling = scale;
             var side = Math.Min(screen.WorkingArea.Width, screen.WorkingArea.Height) / scale - 8;
+            var currentCenter = GetWorkspaceCenter();
             MinWidth = MinHeight = Math.Min(480, side);
             MaxWidth = MaxHeight = side;
-            var bounded = Math.Min(Math.Max(Width, MinWidth), side);
-            ApplyWorkspaceSize(bounded, GetWorkspaceCenter());
+            var bounded = Math.Min(Math.Max(WorkspaceSide, MinWidth), side);
+            if (_fixedWindowsHost)
+            {
+                _workspaceSide = bounded;
+                ResizeFixedHost(side, currentCenter);
+                SetFixedViewportSize(bounded);
+            }
+            else ApplyWorkspaceSize(bounded, currentCenter);
             ClampPositionToWorkArea();
             UpdateRoundWindow();
             UpdateOverlayLayout();
@@ -255,17 +285,20 @@ public partial class MainWindow : Window
         var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
         if (screen is null) return;
         var area = screen.WorkingArea;
-        var physicalWidth = (int)Math.Ceiling(Width * screen.Scaling);
-        var physicalHeight = (int)Math.Ceiling(Height * screen.Scaling);
-        var position = new PixelPoint(Math.Clamp(Position.X, area.X, Math.Max(area.X, area.Right - physicalWidth)),
-            Math.Clamp(Position.Y, area.Y, Math.Max(area.Y, area.Bottom - physicalHeight)));
+        var center = GetWorkspaceCenter();
+        var visibleSide = _resizePreview ? _previewSide : WorkspaceSide;
+        var half = visibleSide * screen.Scaling / 2;
+        var x = Math.Clamp(center.X, area.X + half, Math.Max(area.X + half, area.Right - half));
+        var y = Math.Clamp(center.Y, area.Y + half, Math.Max(area.Y + half, area.Bottom - half));
+        var position = new PixelPoint(Position.X + (int)Math.Round(x - center.X),
+            Position.Y + (int)Math.Round(y - center.Y));
         if (Position != position) Position = position;
     }
 
     private void UpdateOverlayLayout()
     {
-        var side = _resizePreview ? _previewSide : Math.Min(Bounds.Width, Bounds.Height);
-        if (side <= 0) side = Math.Min(Width, Height);
+        var side = _resizePreview ? _previewSide : _fixedWindowsHost ? _workspaceSide : Math.Min(Bounds.Width, Bounds.Height);
+        if (side <= 0) side = WorkspaceSide;
         // Logical-font pages stay centered independently of the illustration's preview transform.
         OverlayCanvas.Width = OverlayCanvas.Height = side;
         OverlayCanvas.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
@@ -288,14 +321,15 @@ public partial class MainWindow : Window
             Canvas.SetLeft(panel, offsetX + (side - panel.Width) / 2);
             Canvas.SetTop(panel, offsetY + (side - panel.Height) / 2);
         }
-        Canvas.SetLeft(ResizeGrip, offsetX + side - ResizeGrip.Width - 14);
-        Canvas.SetTop(ResizeGrip, offsetY + (side - ResizeGrip.Height) / 2);
+        // At 4 o'clock, inside the circular edge and clear of the speaker node.
+        Canvas.SetLeft(ResizeGrip, offsetX + side * .88 - ResizeGrip.Width / 2);
+        Canvas.SetTop(ResizeGrip, offsetY + side * .74 - ResizeGrip.Height / 2);
         _syncingSizeControl = true;
         try
         {
             WorkspaceSizeSlider.Minimum = MinWidth;
             WorkspaceSizeSlider.Maximum = GetCenteredMaximum(_resizeCenter ?? GetWorkspaceCenter());
-            var displaySide = _resizePreview ? _previewSide : Width;
+            var displaySide = _resizePreview ? _previewSide : WorkspaceSide;
             WorkspaceSizeSlider.Value = displaySide;
             WorkspaceSizeLabel.Text = $"{displaySide:0} × {displaySide:0}";
         }
@@ -309,7 +343,7 @@ public partial class MainWindow : Window
         {
             _geometryQueued = false;
             if (_closing) return;
-            if (!_resizePreview) UpdateRoundWindow();
+            if (!_resizePreview || _fixedWindowsHost) UpdateRoundWindow();
             UpdateOverlayLayout();
         }, DispatcherPriority.Render);
     }
@@ -334,7 +368,7 @@ public partial class MainWindow : Window
         if (_closing) return;
         _resizeCenter ??= GetWorkspaceCenter();
         _pendingSide = Math.Clamp(side, MinWidth, GetCenteredMaximum(_resizeCenter.Value));
-        StopSceneMotion();
+        if (!_resizePreview) StopSceneMotion();
         _resizeTimer.Start();
     }
     private void ApplyPendingResize()
@@ -359,7 +393,7 @@ public partial class MainWindow : Window
     private void BeginResizePreview()
     {
         if (_resizePreview || _resizeCenter is not { } center) return;
-        _previewBaseSide = _previewSide = Width;
+        _previewBaseSide = _previewSide = WorkspaceSide;
         _resizePreview = true;
         WorkspaceViewport.Width = WorkspaceViewport.Height = _previewBaseSide;
         WorkspaceViewport.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
@@ -369,7 +403,7 @@ public partial class MainWindow : Window
         WorkspaceViewport.RenderTransform = _previewTransform;
         WorkspaceViewport.Clip = new EllipseGeometry(new Rect(0, 0, _previewBaseSide, _previewBaseSide));
         // Reserve drawing room once. While captured, neither native client size nor position changes.
-        ApplyWorkspaceSize(GetCenteredMaximum(center), center);
+        if (!_fixedWindowsHost) ApplyWorkspaceSize(GetCenteredMaximum(center), center);
         UpdateRoundWindow();
         UpdateOverlayLayout();
     }
@@ -387,16 +421,26 @@ public partial class MainWindow : Window
         var center = _resizeCenter ?? GetWorkspaceCenter();
         _resizePreview = false;
         WorkspaceViewport.RenderTransform = null;
-        WorkspaceViewport.Clip = null;
-        WorkspaceViewport.Width = WorkspaceViewport.Height = double.NaN;
-        WorkspaceViewport.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
-        WorkspaceViewport.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
+        if (!_fixedWindowsHost)
+        {
+            WorkspaceViewport.Clip = null;
+            WorkspaceViewport.Width = WorkspaceViewport.Height = double.NaN;
+            WorkspaceViewport.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            WorkspaceViewport.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
+        }
         ApplyWorkspaceSize(finalSide, center);
         QueueGeometryRefresh();
     }
     private void ApplyWorkspaceSize(double side, Point center)
     {
         if (_adjustingSize) return;
+        if (_fixedWindowsHost)
+        {
+            _workspaceSide = side;
+            SetFixedViewportSize(side);
+            QueueGeometryRefresh();
+            return;
+        }
         var scale = Screens.ScreenFromWindow(this)?.Scaling ?? RenderScaling;
         side = Math.Round(side * scale) / scale;
         var position = CenteredPosition(center, side, scale);
@@ -404,11 +448,18 @@ public partial class MainWindow : Window
         _adjustingSize = true;
         try
         {
+            // First commit the native rectangle atomically, then synchronize Avalonia's layout.
+            // Cocoa's resize notification updates ClientSize; the guarded managed writes cannot
+            // resize back to the previous intermediate frame. No native animation is requested.
+            TryCommitNativeFrame(side, position);
             // Commit a single square client size; SizeChanged never resizes the window again.
             Width = side;
             Height = side;
             ClientSize = new Size(side, side);
             if (Position != position) Position = position;
+            // Complete the viewport's new centered layout within the same UI transaction,
+            // before returning to AppKit's next display cycle.
+            if (OperatingSystem.IsMacOS()) UpdateLayout();
         }
         finally { _adjustingSize = false; }
         QueueGeometryRefresh();
@@ -418,13 +469,12 @@ public partial class MainWindow : Window
         if (_closing || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         ApplyPendingResize();
         _resizeCenter = GetWorkspaceCenter();
-        _resizeStartSide = Width;
+        _resizeStartSide = WorkspaceSide;
         _resizeScale = Screens.ScreenFromWindow(this)?.Scaling ?? RenderScaling;
         _resizeStartPointer = this.PointToScreen(e.GetPosition(this));
         _resizePointer = e.Pointer;
         BeginResizePreview();
         e.Pointer.Capture(ResizeGrip);
-        StopSceneMotion();
         e.Handled = true;
     }
     private void MoveWorkspaceResize(object? sender, PointerEventArgs e)
@@ -451,10 +501,89 @@ public partial class MainWindow : Window
         if (!_closing && IsActive) StartSceneMotion();
     }
     private void ShowWorkspaceSize(object? sender, RoutedEventArgs e) { ClosePanels(); SizeFlyout.IsVisible = true; UpdateOverlayLayout(); }
-    private void DecreaseWorkspace(object? sender, RoutedEventArgs e) => SetWorkspaceSize((_resizePreview ? _previewSide : Width) - 32);
-    private void IncreaseWorkspace(object? sender, RoutedEventArgs e) => SetWorkspaceSize((_resizePreview ? _previewSide : Width) + 32);
+    private void DecreaseWorkspace(object? sender, RoutedEventArgs e) => SetWorkspaceSize((_resizePreview ? _previewSide : WorkspaceSide) - 32);
+    private void IncreaseWorkspace(object? sender, RoutedEventArgs e) => SetWorkspaceSize((_resizePreview ? _previewSide : WorkspaceSide) + 32);
     private void ResetWorkspace(object? sender, RoutedEventArgs e) => SetWorkspaceSize(640);
 
+    private void InitializeFixedWindowsHost()
+    {
+        // Win32 regions provide true outside-circle click-through. macOS is intentionally
+        // excluded until equivalent transparent-host hit testing is verified.
+        if (!OperatingSystem.IsWindows() || _fixedWindowsHost) return;
+        var center = GetWorkspaceCenter();
+        _workspaceSide = Width;
+        _fixedWindowsHost = true;
+        SetFixedViewportSize(_workspaceSide);
+        ResizeFixedHost(MaxWidth, center);
+    }
+    private void SetFixedViewportSize(double side)
+    {
+        WorkspaceViewport.Width = WorkspaceViewport.Height = side;
+        WorkspaceViewport.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        WorkspaceViewport.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        WorkspaceViewport.Clip = new EllipseGeometry(new Rect(0, 0, side, side));
+    }
+    private void ResizeFixedHost(double side, Point center)
+    {
+        if (!double.IsFinite(side) || side <= 0) return;
+        var scale = Screens.ScreenFromWindow(this)?.Scaling ?? RenderScaling;
+        var position = CenteredPosition(center, side, scale);
+        _adjustingSize = true;
+        try
+        {
+            TryCommitNativeFrame(side, position);
+            Width = Height = side;
+            ClientSize = new Size(side, side);
+            if (Position != position) Position = position;
+            // Complete the viewport's new centered layout within the same UI transaction,
+            // before returning to AppKit's next display cycle.
+            if (OperatingSystem.IsMacOS()) UpdateLayout();
+        }
+        finally { _adjustingSize = false; }
+        QueueGeometryRefresh();
+    }
+    private bool TryCommitNativeFrame(double side, PixelPoint position)
+    {
+        var handle = TryGetPlatformHandle();
+        if (handle is null || handle.Handle == IntPtr.Zero) return false;
+        if (OperatingSystem.IsWindows() && handle.HandleDescriptor == "HWND")
+        {
+            var pixels = (int)Math.Round(side * RenderScaling);
+            var committed = SetWindowPos(handle.Handle, IntPtr.Zero, position.X, position.Y, pixels, pixels,
+                0x0004 | 0x0010 | 0x0008); // NOZORDER | NOACTIVATE | NOREDRAW
+            if (committed) UpdateRoundWindow(); // Establish the new shape before any repaint.
+            return committed;
+        }
+        if (!OperatingSystem.IsMacOS() || handle.HandleDescriptor != "NSWindow") return false;
+        var frameSelector = SelRegisterName("frame");
+        CocoaRect frame;
+        if (RuntimeInformation.ProcessArchitecture == Architecture.X64)
+            GetCocoaFrameX64(out frame, handle.Handle, frameSelector);
+        else if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+            frame = GetCocoaFrameArm64(handle.Handle, frameSelector);
+        else return false;
+        // Borderless windows use AppKit point units for their client bounds.
+        if (!double.IsFinite(frame.Width) || !double.IsFinite(frame.Height)
+            || Math.Abs(frame.Width - Width) > 2 || Math.Abs(frame.Height - Height) > 2) return false;
+        frame.X += (frame.Width - side) / 2;
+        frame.Y += (frame.Height - side) / 2;
+        frame.Width = frame.Height = side;
+        SetCocoaFrame(handle.Handle, SelRegisterName("setFrame:display:"), frame, false);
+        return true;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct CocoaRect { public double X, Y, Width, Height; }
+    [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "sel_registerName")]
+    private static extern IntPtr SelRegisterName(string name);
+    [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+    private static extern CocoaRect GetCocoaFrameArm64(IntPtr receiver, IntPtr selector);
+    [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend_stret")]
+    private static extern void GetCocoaFrameX64(out CocoaRect result, IntPtr receiver, IntPtr selector);
+    [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")]
+    private static extern void SetCocoaFrame(IntPtr receiver, IntPtr selector, CocoaRect frame,
+        [MarshalAs(UnmanagedType.I1)] bool display);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out NativeRect rect);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateEllipticRgn(int left, int top, int right, int bottom);
@@ -551,13 +680,36 @@ public partial class MainWindow : Window
             var body = new StackPanel { Spacing = 16 };
             body.Children.Add(new TextBlock { Text = "Windows  ←  →  Mac", FontSize = 21, FontWeight = FontWeight.SemiBold, TextAlignment = TextAlignment.Center });
             body.Children.Add(text);
-            body.Children.Add(new TextBlock { Text = "右滑进入 Mac，左滑返回。\n键盘跟随指针。", TextWrapping = TextWrapping.Wrap, FontSize = 17 });
-            body.Children.Add(new TextBlock { Text = "无法返回？按 Ctrl + Alt + M", TextWrapping = TextWrapping.Wrap, FontSize = 16, Foreground = Brush.Parse("#536685") });
+            body.Children.Add(new TextBlock { Text = "键盘跟随指针 · Ctrl + Alt + M 返回", TextWrapping = TextWrapping.Wrap, FontSize = 16, Foreground = Brush.Parse("#536685") });
+            body.Children.Add(new Avalonia.Controls.Shapes.Rectangle { Height = 1, Fill = Brush.Parse("#DDE7F5"), Margin = new Thickness(0,4) });
+            var roaming = new ToggleSwitch { Content = "旧窗口镜像 · 已停用", IsEnabled = false };
+            roaming.Bind(Avalonia.Controls.Primitives.ToggleButton.IsCheckedProperty,
+                new Avalonia.Data.Binding("WindowRoamingEnabled") { Mode = Avalonia.Data.BindingMode.TwoWay });
+            body.Children.Add(roaming);
+            var roamingState = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 17, Foreground = Brush.Parse("#315B92") };
+            roamingState.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding("WindowRoamingStatus")); body.Children.Add(roamingState);
+            var picker = new StackPanel { Spacing = 8 };
+            picker.Bind(IsVisibleProperty, new Avalonia.Data.Binding("IsWindowsWindowSender"));
+            var choices = new ComboBox { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                PlaceholderText = "选择一个窗口" };
+            choices.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<WindowCaptureTarget>((item, _) =>
+                new TextBlock { Text = item?.Title, TextTrimming = TextTrimming.CharacterEllipsis });
+            choices.Bind(ItemsControl.ItemsSourceProperty, new Avalonia.Data.Binding("RoamingWindows"));
+            choices.Bind(Avalonia.Controls.Primitives.SelectingItemsControl.SelectedItemProperty,
+                new Avalonia.Data.Binding("SelectedRoamingWindow") { Mode = Avalonia.Data.BindingMode.TwoWay });
+            picker.Children.Add(choices);
+            var sendWindow = new Button { Content = "移到 Mac" }; sendWindow.Classes.Add("secondary");
+            sendWindow.Bind(Button.CommandProperty, new Avalonia.Data.Binding("SendRoamingWindowCommand")); picker.Children.Add(sendWindow);
+            // Window crossing is a titlebar gesture. The legacy picker is no longer a product entry.
+            var returnWindow = new Button { Content = "归还窗口" }; returnWindow.Classes.Add("secondary");
+            returnWindow.Bind(Button.CommandProperty, new Avalonia.Data.Binding("ReturnRoamingWindowCommand"));
+            returnWindow.Bind(IsVisibleProperty, new Avalonia.Data.Binding("CanReturnRoamingWindow")); body.Children.Add(returnWindow);
             var setup = new Button { Content = "连接与权限" }; setup.Classes.Add("secondary"); setup.Click += ShowDeviceSetup; body.Children.Add(setup);
             _layoutPanel = CreateDiscPage("跨屏", body);
             OverlayCanvas.Children.Add(_layoutPanel);
         }
         _layoutPanel.IsVisible = !wasVisible;
+        if (!wasVisible && DataContext is MainViewModel current) current.RefreshRoamingWindows();
         UpdateOverlayLayout();
     }
     private Border CreateDiscPage(string title, Control body)

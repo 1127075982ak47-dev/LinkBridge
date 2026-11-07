@@ -121,7 +121,7 @@ public sealed class InputBridgeServer : IAsyncDisposable
                     await stream.WriteAsync(ackBuffer, write.Token).ConfigureAwait(false);
                     write.CancelAfter(Timeout.InfiniteTimeSpan);
                 }
-                else if (packet.Type is InputEventType.Key or InputEventType.Move or InputEventType.Button or InputEventType.Wheel or InputEventType.FileDrag)
+                else if (packet.Type is InputEventType.Key or InputEventType.Move or InputEventType.Button or InputEventType.Wheel or InputEventType.FileDrag or InputEventType.DisplayOrigin or InputEventType.DisplaySize)
                 {
                     if (packet.Type == InputEventType.Key && (packet.Code > 1 || packet.Key > 255) ||
                         packet.Type == InputEventType.Button && (packet.Code > 2 || packet.X is < 0 or > 1) ||

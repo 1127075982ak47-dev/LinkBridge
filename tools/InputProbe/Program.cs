@@ -2,6 +2,41 @@ using LinkBridge.Core;
 using LinkBridge.Input;
 using System.Runtime.InteropServices;
 
+if (args is ["--bottom-layout-self-test"])
+{
+    void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    var seam = new BottomScreenSeam(3840, 0, 2560, 1440, 1920);
+    Check(seam.Start == 4160 && seam.End == 6080, "Mac must be centered under the second Windows monitor");
+    Check(!seam.ContainsEdge(3839, 800) && !seam.ContainsEdge(3840, 800), "Windows internal boundary must never enter Mac");
+    Check(!seam.ContainsEdge(2000, 2159), "Primary monitor bottom must remain local");
+    Check(!seam.ContainsEdge(4159, 1439) && !seam.ContainsEdge(6080, 1439), "Outside seam must remain local");
+    Check(seam.ContainsEdge(4160, 1439) && seam.ContainsEdge(6079, 1439), "Both seam endpoints must work");
+    Check(!seam.ContainsEdge(5000, 1440) && !seam.ContainsEdge(5000, 1437), "Only the selected monitor edge may switch");
+    foreach (var x in new[] {4160, 4321, 5120, 6079})
+        Check(seam.LocalX(seam.RemoteX(x, 1920), 1920) == x, "Entry and return must preserve horizontal position");
+    Check(seam.Returns(32, -40) && !seam.Returns(32, 40) && !seam.Returns(32, -4), "Return only across Mac top edge");
+    var negative = new BottomScreenSeam(-2560, -1440, 2560, 1440, 1920);
+    Check(negative.ContainsEdge(-1280, -1), "Negative monitor coordinates must work");
+    Console.WriteLine("PASS bottom seam: dual Windows internal boundary, selected bottom, centered range, entry/return mapping, top return and negative coordinates");
+    return;
+}
+
+if (args is ["--file-release-self-test"])
+{
+    var gate = new FileDragReleaseGate();
+    gate.Arm();
+    if (gate.Release() || !gate.WaitingForReady || !gate.Ready() || gate.Ready() || gate.Release())
+        throw new Exception("Early release must wait for ready and flush exactly once.");
+    gate.Arm();
+    if (gate.Ready() || !gate.Release() || gate.WaitingForReady)
+        throw new Exception("Normal release must flush after ready.");
+    gate.Arm(); gate.Release(); gate.Cancel();
+    if (gate.Ready() || gate.Release() || gate.WaitingForReady)
+        throw new Exception("Cancelled pending release must never reach the peer.");
+    Console.WriteLine("PASS early release, normal release, exactly once, cancellation");
+    return;
+}
+
 if (args.Length == 4 && args[0] == "--native-roundtrip")
 {
     // Run only with a dedicated foreground scratch editor on the receiving Mac.

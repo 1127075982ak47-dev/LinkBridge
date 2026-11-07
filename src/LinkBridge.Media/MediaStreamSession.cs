@@ -30,7 +30,7 @@ public sealed class MediaStreamSession : IDisposable
         get { lock (_gate) { try { return !_disposed && _process is { HasExited: false }; } catch { return false; } } }
     }
 
-    /// <summary>当前推流目标，形如 192.0.2.20:12345。</summary>
+    /// <summary>当前推流目标，形如 192.168.1.6:12345。</summary>
     public string? Target { get { lock (_gate) return _target; } }
 
     /// <summary>开始推流。相机和麦克风至少要有一个。</summary>

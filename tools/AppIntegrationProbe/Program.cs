@@ -162,6 +162,8 @@ public sealed class Fixture : IAsyncDisposable
         Set(Vm, "_session", Session); Set(Vm, "_receiver", Receiver);
         Set(Vm, "_audioSender", AudioSender); Set(Vm, "_cameraProducer", new SharedCameraProducer());
         Set(Vm, "_lifetimeCts", new CancellationTokenSource());
+        // UninitializedObject bypasses property initializers, including the workspace runtime.
+        Set(Vm, "<WorkspaceRuntime>k__BackingField", new LinkBridge.Core.Workspace.DeskflowRuntime());
         Set(Vm, "_floatTimer", new Avalonia.Threading.DispatcherTimer());
         Set(Vm, "_uiLogGate", new object()); Set(Vm, "_pendingUiLogs", new Queue<string>());
         var log = typeof(MainViewModel).Assembly.GetType("LinkBridge.App.Services.ProductLog")!;

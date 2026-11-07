@@ -178,6 +178,10 @@ private final class Drag: NSObject, NSDraggingSource, NSFilePromiseProviderDeleg
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
     func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        // Once AppKit owns tracking, the temporary source must not cover the
+        // Finder/desktop drop target when the user releases near the entry edge.
+        window?.ignoresMouseEvents = true
+        window?.orderOut(nil)
         emit("started", id: id)
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {

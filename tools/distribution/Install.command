@@ -11,13 +11,17 @@ target="$applications/LinkBridge.app"
 /usr/bin/codesign --verify --deep --strict "$candidate"
 identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$candidate/Contents/Info.plist")"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$candidate/Contents/Info.plist")"
-[ "$identifier" = "com.linkbridge.desktop" ] && [ "$version" = "0.0.1" ] || { printf '%s\n' 'Unexpected release identifier/version; installation refused.' >&2; exit 1; }
+[ "$identifier" = "com.linkbridge.desktop" ] && [ "$version" = "0.0.4" ] || { printf '%s\n' 'Unexpected release identifier/version; installation refused.' >&2; exit 1; }
 signature="$(/usr/bin/codesign -d --verbose=4 "$candidate" 2>&1)"
 printf '%s\n' "$signature" | /usr/bin/grep -q '^Signature=adhoc$' || { printf '%s\n' 'This installer accepts the public ad-hoc preview only.' >&2; exit 1; }
 if printf '%s\n' "$signature" | /usr/bin/grep -q '^Authority='; then
     printf '%s\n' 'A certificate-signed app is not this public preview; installation refused.' >&2; exit 1
 fi
 [ ! -L "$applications" ] && [ ! -L "$target" ] || { printf '%s\n' 'Applications or the target app is a symlink; installation refused.' >&2; exit 1; }
+[ "$(uname -m)" = arm64 ] || { printf '%s\n' 'This beta requires Apple Silicon.' >&2; exit 1; }
+if /usr/bin/pgrep -f "^$target/Contents/MacOS/LinkBridge.App" >/dev/null; then
+    printf '%s\n' 'Quit the installed LinkBridge app before updating it.' >&2; exit 1
+fi
 mkdir -p "$applications"
 staging="$(mktemp -d "$applications/.LinkBridge-public-install.XXXXXX")"
 if [ -e "$target" ]; then
@@ -25,11 +29,11 @@ if [ -e "$target" ]; then
     existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist")"
     [ "$existing_id" = "$identifier" ] || { printf '%s\n' 'Another app occupies the target path; installation refused.' >&2; exit 1; }
     /usr/bin/codesign --verify --deep --strict "$target"
-    source_req="$(/usr/bin/codesign -d -r- "$candidate" 2>&1 | /usr/bin/sed -n '/^designated => /p')"
-    target_req="$(/usr/bin/codesign -d -r- "$target" 2>&1 | /usr/bin/sed -n '/^designated => /p')"
+    source_req="$(/usr/bin/codesign -d -r- "$candidate" 2>&1 | /usr/bin/sed -n 's/^# //; s/^designated => //p')"
+    target_req="$(/usr/bin/codesign -d -r- "$target" 2>&1 | /usr/bin/sed -n 's/^# //; s/^designated => //p')"
     [ -n "$source_req" ] && [ -n "$target_req" ] || { printf '%s\n' 'Unable to compare existing signing identity; installation refused.' >&2; exit 1; }
-    /usr/bin/csreq -r "$source_req" -b "$staging/source.req"
-    /usr/bin/csreq -r "$target_req" -b "$staging/target.req"
+    /usr/bin/csreq -r "=$source_req" -b "$staging/source.req"
+    /usr/bin/csreq -r "=$target_req" -b "$staging/target.req"
     if ! /usr/bin/cmp -s "$staging/source.req" "$staging/target.req"; then
         printf '%s\n' 'The existing app has a different signing requirement. No app or authorization was replaced.' >&2
         printf '%s\n' 'Review/build the source with your own stable signing setup before choosing a manual migration.' >&2

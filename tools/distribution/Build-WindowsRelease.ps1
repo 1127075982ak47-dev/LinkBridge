@@ -1,12 +1,14 @@
-#requires -Version 7.2
+﻿#requires -Version 7.2
 [CmdletBinding()]
 param(
     [string] $SourceRoot = (Join-Path $PSScriptRoot '../..'),
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string] $Version = '0.0.1'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string] $Version = '0.0.4'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $sourcePath = [IO.Path]::GetFullPath($SourceRoot)
+$release = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Raw | ConvertFrom-Json
+if ($Version -ne $release.version) { throw 'Requested version differs from release.json.' }
 $project = Join-Path $sourcePath 'src/LinkBridge.App/LinkBridge.App.csproj'
 if (-not (Test-Path -LiteralPath $project -PathType Leaf)) { throw 'LinkBridge application project not found.' }
 $releaseRoot = Join-Path $sourcePath 'artifacts/public-release'
@@ -22,7 +24,7 @@ $assemblyVersion = $Version + '.0'
 & dotnet publish $project -c Release -r win-x64 --self-contained true -o $stage `
     '-p:PublishSingleFile=false' '-p:DebugType=None' '-p:DebugSymbols=false' `
     "-p:Version=$Version" "-p:AssemblyVersion=$assemblyVersion" "-p:FileVersion=$assemblyVersion" `
-    "-p:InformationalVersion=$Version" "-p:PathMap=$sourcePath=/_/LinkBridge"
+    "-p:InformationalVersion=$($release.label)" "-p:PathMap=$sourcePath=/_/LinkBridge"
 if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed; previous release was not replaced.' }
 $applicationAssembly = Join-Path $stage 'LinkBridge.App.dll'
 $actualVersion = [Reflection.AssemblyName]::GetAssemblyName($applicationAssembly).Version.ToString()
@@ -34,6 +36,7 @@ Copy-Item -LiteralPath (Join-Path $sourcePath 'src/LinkBridge.App/Assets/linkbri
 foreach ($name in @('LICENSE', 'THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $sourcePath $name) -Destination (Join-Path $stage $name)
 }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release.json') -Destination (Join-Path $stage 'release.json')
 Copy-Item -LiteralPath (Join-Path $sourcePath 'docs/BUILDING.md') -Destination (Join-Path $stage 'BUILDING.md')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install-Windows.ps1') -Destination (Join-Path $stage 'Install-Windows.ps1')
 Copy-Item -LiteralPath (Join-Path $sourcePath 'tools/open-source/New-PairingProfile.ps1') -Destination (Join-Path $stage 'New-PairingProfile.ps1')

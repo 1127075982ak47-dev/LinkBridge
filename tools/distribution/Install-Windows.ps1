@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([string]$PackageDirectory = '', [switch]$NoStart, [switch]$ValidateOnly)
 Set-StrictMode -Version Latest

@@ -15,6 +15,27 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        if (args is ["--version"])
+        {
+            Console.WriteLine("LinkBridge 0.0.4-beta.1 (public-beta)");
+            return;
+        }
+        if(args.Length>0 && args[0]=="--window-redraw")
+        {Environment.ExitCode=Services.BorrowedWindow.RunRedrawHelper(args);return;}
+        if (OperatingSystem.IsMacOS() && args.Contains("--probe-window-reverse"))
+        {
+            var directory = Path.GetDirectoryName(SettingsStore.FilePath)!;
+            Directory.CreateDirectory(directory);
+            Environment.ExitCode = RunReverseWindowProbe(Path.Combine(directory, "window-reverse-stream.bin"));
+            return;
+        }
+        if (OperatingSystem.IsMacOS() && args.Contains("--probe-window-offscreen"))
+        {
+            var directory = Path.GetDirectoryName(SettingsStore.FilePath)!;
+            Directory.CreateDirectory(directory);
+            Environment.ExitCode = RunOffscreenWindowProbe(Path.Combine(directory, "window-offscreen-probe.json"));
+            return;
+        }
         if (OperatingSystem.IsMacOS() && args.Contains("--probe-camera"))
         {
             var directory = Path.GetDirectoryName(SettingsStore.FilePath)!;
@@ -27,7 +48,9 @@ sealed class Program
             return;
         }
 
-        using var instance = new Mutex(true, "LinkBridge.Desktop.CurrentUser.v2", out var ownsInstance);
+        var isolation=Environment.GetEnvironmentVariable("LINKBRIDGE_WORKSPACE_HOME");
+        var instanceName="LinkBridge.Desktop.CurrentUser.v2"+(string.IsNullOrEmpty(isolation)?"":"."+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(isolation)))).Substring(0,16));
+        using var instance = new Mutex(true, instanceName, out var ownsInstance);
         if (!ownsInstance)
         {
             if (OperatingSystem.IsWindows())
@@ -70,6 +93,11 @@ sealed class Program
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.
+    [DllImport("libLinkBridge.WindowRoaming.dylib", EntryPoint = "LBMW_RunOffscreenProbe")]
+    private static extern int RunOffscreenWindowProbe([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    [DllImport("libLinkBridge.WindowRoaming.dylib", EntryPoint = "LBMW_RunReverseProbe")]
+    private static extern int RunReverseWindowProbe([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()

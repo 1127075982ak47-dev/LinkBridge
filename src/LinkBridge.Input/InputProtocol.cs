@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace LinkBridge.Input;
 
-public enum InputEventType : byte { Key = 1, Move = 2, Button = 3, Wheel = 4, Heartbeat = 5, HeartbeatAck = 6, FileDrag = 7 }
+public enum InputEventType : byte { Key = 1, Move = 2, Button = 3, Wheel = 4, Heartbeat = 5, HeartbeatAck = 6, FileDrag = 7, DisplayOrigin = 8, DisplaySize = 9 }
 
 public static class InputProtocol
 {

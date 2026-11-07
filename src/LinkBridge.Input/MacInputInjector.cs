@@ -42,6 +42,8 @@ public sealed class MacInputInjector
     [DllImport(Quartz)] private static extern IntPtr CGEventCreateMouseEvent(IntPtr source, int type, Point point, int button);
     [DllImport(Quartz, CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr CGEventCreateScrollWheelEvent(IntPtr source, int units, uint wheels, int delta);
     [DllImport(Quartz)] private static extern void CGEventPost(int tap, IntPtr evt);
+    [DllImport(Quartz)] private static extern void CGEventSetFlags(IntPtr evt, ulong flags);
+    [DllImport(Quartz)] private static extern ulong CGEventSourceFlagsState(int state);
     [DllImport(Quartz)] private static extern IntPtr CGWindowListCopyWindowInfo(uint options, uint relativeToWindow);
     [DllImport(Quartz)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool CGRectMakeWithDictionaryRepresentation(IntPtr dictionary, out Rect rect);
     [DllImport(CoreFoundation)] private static extern nint CFArrayGetCount(IntPtr array);
@@ -51,16 +53,20 @@ public sealed class MacInputInjector
     [DllImport(CoreFoundation)] [return: MarshalAs(UnmanagedType.I1)] private static extern bool CFNumberGetValue(IntPtr number, int type, out long value);
     [DllImport(CoreFoundation)] private static extern void CFRelease(IntPtr value);
 
-    private readonly HashSet<ushort> _heldKeys = [];
+    private readonly EditingShortcutState _keys;
     private readonly HashSet<byte> _heldButtons = [];
+    private readonly MacScrollWheel _scrollWheel = new();
     private bool _fileDragArmed;
-    private readonly Rect _bounds;
+    private Rect _bounds;
+    private Point? _pendingDisplayOrigin;
     private double _x;
     private double _y;
 
     public MacInputInjector()
     {
         if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException();
+        _keys = new EditingShortcutState(PostNativeKey, FrontmostApplication.BundleIdentifier,
+            (CGEventSourceFlagsState(0) & (1UL << 16)) != 0);
         _bounds = CGDisplayBounds(CGMainDisplayID());
         var evt = CGEventCreate(IntPtr.Zero);
         try
@@ -168,8 +174,16 @@ public sealed class MacInputInjector
     {
         switch (packet.Type)
         {
+            case InputEventType.DisplayOrigin:
+                _pendingDisplayOrigin = Math.Abs((long)packet.X) <= 65536 && Math.Abs((long)packet.Y) <= 65536 ? new Point(packet.X,packet.Y) : null;
+                break;
+            case InputEventType.DisplaySize:
+                if (_pendingDisplayOrigin is { } origin && NativeScreens.Read().Any(s => s.X == origin.X && s.Y == origin.Y && s.Width == packet.X && s.Height == packet.Y))
+                    _bounds = new Rect(origin,new Size(packet.X,packet.Y));
+                _pendingDisplayOrigin = null;
+                break;
             case InputEventType.Key:
-                if (TryMacKey(packet.Key, out var key)) PostKey(key, packet.Code == 0);
+                _keys.Apply(packet.Key, packet.Code == 0);
                 break;
             case InputEventType.Move:
                 _x = Math.Clamp(_x + packet.X, _bounds.Origin.X, _bounds.Origin.X + _bounds.Size.Width - 1);
@@ -192,7 +206,10 @@ public sealed class MacInputInjector
                 }, packet.Code);
                 break;
             case InputEventType.Wheel:
-                var evt = CGEventCreateScrollWheelEvent(IntPtr.Zero, 0, 1, packet.X / 120);
+                var pixels = _scrollWheel.Convert(packet.X);
+                if (pixels == 0) break;
+                var evt = CGEventCreateScrollWheelEvent(IntPtr.Zero, 0, 1, pixels);
+                if (evt != IntPtr.Zero) CGEventSetFlags(evt, _keys.Flags);
                 Post(evt);
                 break;
             case InputEventType.FileDrag:
@@ -210,7 +227,8 @@ public sealed class MacInputInjector
 
     public void ReleaseAll()
     {
-        foreach (var key in _heldKeys.ToArray()) PostKey(key, false);
+        _scrollWheel.Reset();
+        _keys.ReleaseAll();
         // A broken input connection must abort the native drag before release.
         // Normal Button-up cleared the flag, so a successful drop gets no Escape.
         CancelArmedFileDrag();
@@ -228,11 +246,22 @@ public sealed class MacInputInjector
 
     private void PostKey(ushort key, bool down)
     {
-        if (down) _heldKeys.Add(key); else _heldKeys.Remove(key);
-        Post(CGEventCreateKeyboardEvent(IntPtr.Zero, key, down));
+        _keys.InjectNativeKey(key, down);
     }
 
-    private void PostMouse(int type, int button) => Post(CGEventCreateMouseEvent(IntPtr.Zero, type, new Point(_x, _y), button));
+    private static void PostNativeKey(ushort key, bool down, ulong flags)
+    {
+        var evt = CGEventCreateKeyboardEvent(IntPtr.Zero, key, down);
+        if (evt != IntPtr.Zero) CGEventSetFlags(evt, flags);
+        Post(evt);
+    }
+
+    private void PostMouse(int type, int button)
+    {
+        var evt = CGEventCreateMouseEvent(IntPtr.Zero, type, new Point(_x, _y), button);
+        if (evt != IntPtr.Zero) CGEventSetFlags(evt, _keys.Flags);
+        Post(evt);
+    }
 
     private static void Post(IntPtr evt)
     {
@@ -266,5 +295,125 @@ public sealed class MacInputInjector
         };
         key = mapped >= 0 ? (ushort)mapped : (ushort)0;
         return mapped >= 0;
+    }
+
+    // Separating physical state from posted state lets one editing chord use
+    // Command without turning unrelated Control shortcuts into Command shortcuts.
+    internal sealed class EditingShortcutState(Action<ushort, bool, ulong> post, Func<string?> frontmostBundle, bool capsLock = false)
+    {
+        private readonly HashSet<ushort> _physical = [];
+        private readonly HashSet<ushort> _posted = [];
+        private readonly Dictionary<ushort, (ushort Key, bool Redo)> _editing = [];
+        private bool _capsLock = capsLock;
+
+        internal ulong Flags => (_capsLock ? 1UL << 16 : 0) |
+            (_posted.Any(k => k is 56 or 60) ? 1UL << 17 : 0) |
+            (_posted.Any(k => k is 59 or 62) ? 1UL << 18 : 0) |
+            (_posted.Any(k => k is 58 or 61) ? 1UL << 19 : 0) |
+            (_posted.Any(k => k is 54 or 55) ? 1UL << 20 : 0);
+
+        internal void Apply(ushort vk, bool down)
+        {
+            if (!TryMacKey(vk, out var raw)) return;
+            if (down)
+            {
+                var newlyPressed = _physical.Add(raw);
+                if (raw == 57 && newlyPressed) _capsLock = !_capsLock;
+                if (!_editing.ContainsKey(vk) && newlyPressed &&
+                    _physical.Any(k => k is 59 or 62) &&
+                    !_physical.Any(k => k is 54 or 55 or 58 or 61) &&
+                    TryEditingChord(vk, frontmostBundle(), out var mapped, out var redo))
+                    _editing.Add(vk, (mapped, redo));
+                ReconcileModifiers();
+                if (!IsModifier(raw))
+                    InjectNativeKey(_editing.TryGetValue(vk, out var chord) ? chord.Key : raw, true);
+            }
+            else
+            {
+                var target = _editing.TryGetValue(vk, out var chord) ? chord.Key : raw;
+                // Keep the chord's Command/Shift through its letter-up. Only
+                // afterwards restore a Control key that is still physically held.
+                _physical.Remove(raw);
+                if (!IsModifier(raw) && _posted.Contains(target) &&
+                    !_editing.Any(pair => pair.Key != vk && pair.Value.Key == target) &&
+                    !_physical.Any(key => key == target && !_editing.Any(pair => TryMacKey(pair.Key, out var original) && original == key)))
+                    InjectNativeKey(target, false);
+                _editing.Remove(vk);
+                ReconcileModifiers();
+            }
+        }
+
+        private void ReconcileModifiers()
+        {
+            var desired = _physical.Where(IsModifier).ToHashSet();
+            if (_editing.Count != 0)
+            {
+                desired.Remove(59); desired.Remove(62); desired.Add(55);
+                if (_editing.Values.Any(chord => chord.Redo) && !desired.Any(k => k is 56 or 60)) desired.Add(56);
+            }
+            foreach (var key in _posted.Where(IsModifier).Where(key => !desired.Contains(key)).ToArray()) InjectNativeKey(key, false);
+            foreach (var key in desired.Where(key => !_posted.Contains(key))) InjectNativeKey(key, true);
+        }
+
+        internal void InjectNativeKey(ushort key, bool down)
+        {
+            if (down) _posted.Add(key); else _posted.Remove(key);
+            post(key, down, Flags);
+        }
+
+        internal void ReleaseAll()
+        {
+            _physical.Clear(); _editing.Clear();
+            foreach (var key in _posted.OrderBy(IsModifier).ToArray()) InjectNativeKey(key, false);
+        }
+
+        private static bool IsModifier(ushort key) => key is 54 or 55 or 56 or 58 or 59 or 60 or 61 or 62;
+
+        internal static bool TryEditingChord(ushort vk, string? bundle, out ushort key, out bool redo)
+        {
+            redo = vk == 0x59;
+            key = redo ? (ushort)6 : (ushort)0; // Windows Ctrl+Y becomes Mac Command+Shift+Z.
+            if (vk is not (0x43 or 0x56 or 0x58 or 0x41 or 0x5A or 0x59 or 0x53 or 0x46)) return false;
+            // Paste is consistently Command+V, including terminal emulators.
+            // Unknown front apps otherwise keep Control rather than risking a
+            // terminal interrupt, suspend or shell line-editing command.
+            if (vk != 0x56 && (string.IsNullOrWhiteSpace(bundle) || IsTerminal(bundle))) return false;
+            return redo || TryMacKey(vk, out key);
+        }
+
+        private static bool IsTerminal(string bundle) => bundle.Equals("com.apple.Terminal", StringComparison.OrdinalIgnoreCase) ||
+            bundle.Equals("com.googlecode.iterm2", StringComparison.OrdinalIgnoreCase) ||
+            bundle.StartsWith("dev.warp.", StringComparison.OrdinalIgnoreCase) ||
+            bundle.Equals("net.kovidgoyal.kitty", StringComparison.OrdinalIgnoreCase) ||
+            bundle.StartsWith("org.alacritty", StringComparison.OrdinalIgnoreCase) ||
+            bundle.StartsWith("com.mitchellh.ghostty", StringComparison.OrdinalIgnoreCase) ||
+            bundle.StartsWith("org.wezfurlong.wezterm", StringComparison.OrdinalIgnoreCase) ||
+            bundle.Equals("co.zeit.hyper", StringComparison.OrdinalIgnoreCase) ||
+            bundle.StartsWith("org.tabby", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static class FrontmostApplication
+    {
+        private const string ObjC = "/usr/lib/libobjc.A.dylib";
+        private static readonly nint AppKit = NativeLibrary.Load("/System/Library/Frameworks/AppKit.framework/AppKit");
+        [DllImport(ObjC, EntryPoint = "objc_getClass")] private static extern nint Class([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+        [DllImport(ObjC, EntryPoint = "sel_registerName")] private static extern nint Selector([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+        [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern nint Send(nint receiver, nint selector);
+
+        internal static string? BundleIdentifier()
+        {
+            nint pool = 0;
+            try
+            {
+                _ = AppKit;
+                pool = Send(Send(Class("NSAutoreleasePool"), Selector("alloc")), Selector("init"));
+                var workspace = Send(Class("NSWorkspace"), Selector("sharedWorkspace"));
+                var app = Send(workspace, Selector("frontmostApplication"));
+                var identifier = Send(app, Selector("bundleIdentifier"));
+                return identifier == 0 ? null : Marshal.PtrToStringUTF8(Send(identifier, Selector("UTF8String")));
+            }
+            catch { return null; }
+            finally { if (pool != 0) Send(pool, Selector("drain")); }
+        }
     }
 }

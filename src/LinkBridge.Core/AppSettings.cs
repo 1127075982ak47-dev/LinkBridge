@@ -25,6 +25,9 @@ public sealed class AppSettings
     [JsonPropertyName("allowedControllerAddress")]
     public string AllowedControllerAddress { get; set; } = string.Empty;
 
+    [JsonPropertyName("lastConnectedPeerAddress")]
+    public string LastConnectedPeerAddress { get; set; } = string.Empty;
+
     [JsonPropertyName("inputPairingSecret")]
     public string InputPairingSecret { get; set; } = string.Empty;
 
@@ -33,6 +36,19 @@ public sealed class AppSettings
 
     [JsonPropertyName("remoteDisplayHeight")]
     public int RemoteDisplayHeight { get; set; } = 1440;
+
+    [JsonPropertyName("inputScreenEdge")]
+    public string InputScreenEdge { get; set; } = "right";
+    [JsonPropertyName("inputScreenX")]
+    public int InputScreenX { get; set; }
+    [JsonPropertyName("inputScreenY")]
+    public int InputScreenY { get; set; }
+    [JsonPropertyName("inputScreenWidth")]
+    public int InputScreenWidth { get; set; } = 2560;
+    [JsonPropertyName("inputScreenHeight")]
+    public int InputScreenHeight { get; set; } = 1440;
+    [JsonPropertyName("inputSeamWidth")]
+    public int InputSeamWidth { get; set; } = 1920;
 
     /// <summary>采集帧率。</summary>
     [JsonPropertyName("frameRate")]
@@ -66,15 +82,18 @@ public sealed class AppSettings
     public bool ReduceMotion { get; set; }
 
     [JsonPropertyName("shareSystemAudioAutomatically")]
-    public bool ShareSystemAudioAutomatically { get; set; } = true;
+    public bool ShareSystemAudioAutomatically { get; set; }
 
     [JsonPropertyName("shareClipboardAutomatically")]
     public bool ShareClipboardAutomatically { get; set; } = true;
 
+    [JsonPropertyName("windowRoamingEnabled")]
+    public bool WindowRoamingEnabled { get; set; }
+
     [JsonPropertyName("shareLocalCamera")]
-    public bool ShareLocalCamera { get; set; } = true;
+    public bool ShareLocalCamera { get; set; }
     [JsonPropertyName("shareLocalMicrophone")]
-    public bool ShareLocalMicrophone { get; set; } = true;
+    public bool ShareLocalMicrophone { get; set; }
     // Backend, Id and name must all match. A changed AVFoundation index cannot
     // silently select another camera after a hot-plug or a device refresh.
     [JsonPropertyName("preferredCameraSource")]
@@ -236,6 +255,12 @@ public static class SettingsStore
         if (settings.AudioBitrateKbps is < 32 or > 1024) { settings.AudioBitrateKbps = defaults.AudioBitrateKbps; changed = true; }
         if (settings.RemoteDisplayWidth is < 320 or > 16384) { settings.RemoteDisplayWidth = defaults.RemoteDisplayWidth; changed = true; }
         if (settings.RemoteDisplayHeight is < 200 or > 16384) { settings.RemoteDisplayHeight = defaults.RemoteDisplayHeight; changed = true; }
+        if (settings.InputScreenEdge is not ("right" or "bottom")) { settings.InputScreenEdge = "right"; changed = true; }
+        if (settings.InputScreenX is < -65536 or > 65536) { settings.InputScreenX = 0; changed = true; }
+        if (settings.InputScreenY is < -65536 or > 65536) { settings.InputScreenY = 0; changed = true; }
+        if (settings.InputScreenWidth is < 320 or > 16384) { settings.InputScreenWidth = defaults.InputScreenWidth; changed = true; }
+        if (settings.InputScreenHeight is < 200 or > 16384) { settings.InputScreenHeight = defaults.InputScreenHeight; changed = true; }
+        if (settings.InputSeamWidth < 1 || settings.InputSeamWidth > settings.InputScreenWidth) { settings.InputSeamWidth = settings.InputScreenWidth; changed = true; }
         if (settings.Theme is not ("system" or "light" or "dark")) { settings.Theme = defaults.Theme; changed = true; }
         return changed;
     }
@@ -311,6 +336,8 @@ public static class SettingsStore
     private static extern int CloseUnix(int descriptor);
     private static string ResolvePath()
     {
+        if(Environment.GetEnvironmentVariable("LINKBRIDGE_WORKSPACE_HOME") is {Length:>0} isolated)
+            return Path.Combine(Path.GetFullPath(isolated),"legacy-settings.json");
         if (PlatformInfo.IsMacOS)
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

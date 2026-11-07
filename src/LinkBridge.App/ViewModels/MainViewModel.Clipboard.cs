@@ -31,13 +31,15 @@ public partial class MainViewModel
     [ObservableProperty] private string _clipboardStatus = "等待配对电脑";
     [ObservableProperty] private bool _hasClipboardSendError;
     [ObservableProperty] private bool _isMotionReduced;
-    public string ProductVersion => "0.0.1";
+    public string ProductVersion => "0.0.3";
     public double PeerIllustrationOpacity => IsPeerConnected ? 1 : .35;
     public bool CanCaptureMac => ShareClipboardAutomatically && (OperatingSystem.IsMacOS() || IsPeerConnected);
     public Geometry ClipboardIcon => Geometry.Parse("M8 4 H5 V21 H19 V4 H16 M8 2 H16 V6 H8 Z M8 10 H16 M8 14 H16 M8 18 H13");
     partial void OnIsMotionReducedChanged(bool value) { Settings.ReduceMotion = value; SaveSettings(); }
     partial void OnIsPeerConnectedChanged(bool value)
     {
+        if (!value && !IsConnectingPeer) ConnectionActionStatus = "";
+        OnPropertyChanged(nameof(ConnectionSummaryText));
         OnPropertyChanged(nameof(CanCaptureMac));
         OnPropertyChanged(nameof(PeerIllustrationOpacity));
     }
@@ -52,7 +54,8 @@ public partial class MainViewModel
             while (_clipboardOutgoing.Reader.TryRead(out _)) { }
         }
         HasClipboardSendError = false;
-        ClipboardStatus = value ? (_clipboardServer is null ? "等待配对电脑" : "已开启 · 复制文字或图片即可") : "取材已暂停";
+        if (!value) _fileClipboardServer?.CancelActiveTransfers();
+        ClipboardStatus = value ? (_clipboardServer is null ? "等待配对电脑" : "已开启 · 复制文件、文字或图片即可") : "取材已暂停";
         OnPropertyChanged(nameof(CanCaptureMac));
     }
 
@@ -80,9 +83,10 @@ public partial class MainViewModel
             _clipboardServer = new ClipboardBridgeServer(address, Settings.InputPairingSecret, ApplyRemoteClipboardAsync);
             _clipboardServer.Diagnostic += message => AppendLog("[取材] " + message);
             _clipboardServer.Start();
+            InitializeFileClipboard(address);
             _clipboardWorker = Task.Run(SendClipboardLoopAsync);
-            ClipboardStatus = ShareClipboardAutomatically ? "已开启 · 复制文字或图片即可" : "取材已暂停";
-            AppendLog("[取材] 文字与无损图片通道已就绪 · LBC1 TLS");
+            ClipboardStatus = ShareClipboardAutomatically ? "已开启 · 复制文件、文字或图片即可" : "取材已暂停";
+            AppendLog("[取材] 文件、文字与无损图片通道已就绪 · LBC1 TLS");
         }
         catch (Exception error)
         {
@@ -110,6 +114,7 @@ public partial class MainViewModel
             _clipboardReceiveCancellation?.Cancel();
             _clipboardOutgoing.Writer.TryWrite(content);
         }
+        _fileClipboardServer?.CancelActiveTransfers();
     }
 
     private async Task SendClipboardLoopAsync()
@@ -128,27 +133,40 @@ public partial class MainViewModel
                 }
                 try
                 {
-                    await _clipboardSender.SendAsync(_clipboardAddress!, Settings.InputPairingSecret,
+                    if (content.Kind == SharedClipboardFiles.Kind)
+                    {
+                        var paths = SharedClipboardFiles.Decode(content);
+                        var progress = new ImmediateFileProgress(value => Dispatcher.UIThread.Post(() =>
+                        {
+                            if (revision == _clipboardRevision)
+                                ClipboardStatus = $"发送文件 · {FormatFileBytes(value.Bytes)} / {FormatFileBytes(value.TotalBytes)}";
+                        }));
+                        await _fileTransferSender.SendAsync(_clipboardAddress!, Settings.InputPairingSecret,
+                            paths, progress, cancellation.Token, SharedClipboardFiles.Port).ConfigureAwait(false);
+                    }
+                    else await _clipboardSender.SendAsync(_clipboardAddress!, Settings.InputPairingSecret,
                         new ClipboardPayload(Guid.NewGuid(), content.Kind, content.Data), cancellation.Token).ConfigureAwait(false);
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         if (_shuttingDown || revision != _clipboardRevision) return;
-                        ClipboardStatus = content.Kind == ClipboardKinds.Png ? "图片已送达 · 可在另一台粘贴" : "文字已送达 · 可在另一台粘贴";
+                        ClipboardStatus = content.Kind == SharedClipboardFiles.Kind ? "文件已送达 · 到另一台目标文件夹粘贴" :
+                            content.Kind == ClipboardKinds.Png ? "图片已送达 · 可在另一台粘贴" : "文字已送达 · 可在另一台粘贴";
                         HasClipboardSendError = false;
                     });
                 }
                 catch (OperationCanceledException) { }
-                catch
+                catch (Exception error)
                 {
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         if (!_shuttingDown && revision == _clipboardRevision)
                         {
-                            ClipboardStatus = "未送达 · 确认另一台联桥已打开";
+                            ClipboardStatus = content.Kind == SharedClipboardFiles.Kind
+                                ? "文件未送达 · 确认两端已更新并打开，可重试" : "未送达 · 确认另一台联桥已打开";
                             HasClipboardSendError = true;
                         }
                     });
-                    AppendLog("[取材] 本次内容未送达，系统剪贴板保留");
+                    AppendLog("[取材] 本次内容未送达：" + error.Message);
                 }
                 finally { lock (_clipboardGate) if (ReferenceEquals(_clipboardSendCancellation, cancellation)) _clipboardSendCancellation = null; }
             }
@@ -169,6 +187,7 @@ public partial class MainViewModel
             _clipboardDigest = digest;
             revision = ++_clipboardRevision;
             _clipboardSendCancellation?.Cancel();
+            _clipboardReceiveCancellation?.Cancel();
             _clipboardReceiveCancellation = receiving;
             _lastLocalClipboard = null;
         }
@@ -234,6 +253,7 @@ public partial class MainViewModel
         lock (_clipboardGate) { _clipboardSendCancellation?.Cancel(); _clipboardReceiveCancellation?.Cancel(); }
         _windowsClipboard?.Dispose(); _macClipboard?.Dispose();
         if (_clipboardServer is not null) await _clipboardServer.DisposeAsync();
+        if (_fileClipboardServer is not null) await _fileClipboardServer.DisposeAsync();
         if (_clipboardWorker is not null) await _clipboardWorker;
     }
 }

@@ -31,6 +31,11 @@ public sealed class FileTransferServer : IAsyncDisposable
     public event Action<string>? Diagnostic;
     public int Port => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? _port;
 
+    public void CancelActiveTransfers()
+    {
+        foreach (var client in _clients.Keys) client.Dispose();
+    }
+
     public FileTransferServer(string allowedAddress, string secret, string cacheRoot,
         Func<FileTransferManifest, string, CancellationToken, Task> manifestAccepted,
         Func<Guid, string, CancellationToken, Task> uploadReady, Func<Guid, string, Task>? failed = null,

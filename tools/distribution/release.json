@@ -1,0 +1,9 @@
+{
+  "version": "0.0.4",
+  "label": "0.0.4-beta.1",
+  "channel": "public-beta",
+  "delivery": "20261107",
+  "scope": ["Windows-to-Mac keyboard and mouse", "one configurable screen seam", "text and PNG clipboard", "bidirectional file copy and paste"],
+  "platforms": ["Windows 11 x64", "macOS 15+ Apple Silicon"],
+  "excluded": ["audio", "camera", "microphone", "window roaming", "multi-computer workspace", "Linux", "Intel Mac"]
+}
